@@ -1,14 +1,21 @@
 [tool.poetry]
 name = "vq-ama-agent"
 version = "0.1.0"
+# package-mode = false
+
+packages = [
+  { include = "*", from = "src" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
 openai = "^0.27.0"
 langchain = "^0.0.200"
-pdfminer.six = "^20220524"
 faiss-cpu = "^1.7.2"
 PyYAML = "^6.0"
+python-dotenv = "^1.0.0"
+typer = "^0.7.0"
+boto3 = "^1.28.0"
 
 [tool.poetry.scripts]
-my-rag-agent = "src.main:cli"
+vq-ama-agent = "src.main:cli"
