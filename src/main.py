@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import typer
 
 from .bedrock_client import BedrockClient
-from .retriever import VectorRetriever
+#from .retriever import VectorRetriever
 from .agent import RAGAgent
 
 app = typer.Typer()
@@ -22,9 +22,9 @@ def chat_loop(agent: RAGAgent):
 def cli():
     load_dotenv()
     model_id = os.getenv("BEDROCK_MODEL_ID")
-    retriever = VectorRetriever(os.getenv("INDEX_PATH", "data/processed/faiss_index.faiss"))
+    #retriever = VectorRetriever(os.getenv("INDEX_PATH", "data/processed/faiss_index.faiss"))
     bedrock = BedrockClient()
-    agent = RAGAgent(retriever, bedrock, model_id)
+    agent = RAGAgent(bedrock, model_id)
 
     chat_loop(agent)
 
