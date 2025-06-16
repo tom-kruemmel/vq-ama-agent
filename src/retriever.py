@@ -3,7 +3,6 @@ import pickle
 from typing import List
 
 import faiss
-from langchain.embeddings import OpenAIEmbeddings
 
 
 class VectorRetriever:

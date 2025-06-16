@@ -1,5 +1,5 @@
-from langchain_community.embeddings import BedrockEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_aws import BedrockEmbeddings
+from langchain_chroma import Chroma
 import boto3
 
 class Embeddings:
@@ -24,10 +24,15 @@ class Embeddings:
         )
 
         # Initialize the vector store
-        vector_store = Chroma(embedding_function=embedding_model)
+        vector_store = Chroma(
+            persist_directory="./chroma_store",
+            collection_name="pdf_docs",
+            embedding_function=embedding_model
+        )
         all_results = []
-        breakpoint()
         for q in query_list:
+            if len(q) == 0:
+                continue 
             docs = vector_store.similarity_search(q, k=top_k)
             all_results.append(docs)
         return all_results

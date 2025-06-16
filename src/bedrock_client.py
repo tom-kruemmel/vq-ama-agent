@@ -5,6 +5,11 @@ from typing import Dict, Any, List
 import boto3
 from langchain_community.chat_models.bedrock import BedrockChat
 from langchain.prompts import ChatPromptTemplate
+from langchain_chroma import Chroma
+from langchain.chains import RetrievalQA
+from langchain_aws import ChatBedrock
+from langchain_aws import BedrockEmbeddings
+
 
 class BedrockClient:
     """
@@ -50,6 +55,44 @@ class BedrockClient:
     #         tags=[{'key': 'Project', 'value': 'MyApp'}]
     #     )
     #     return res['inferenceProfileArn']
+
+    def retrieve_from_db(self, model_id, prompt):
+
+        embedding_model = BedrockEmbeddings(
+            client=self.client,
+            model_id="amazon.titan-embed-text-v2:0"
+        )
+
+        vector_store = Chroma(
+            persist_directory="./chroma_store/",
+            collection_name="pdf_docs",
+            embedding_function=embedding_model
+        )
+
+        # Create a retriever
+        retriever = vector_store.as_retriever(search_kwargs={"k": 5})
+
+        # Initialize Bedrock chat model
+        chat_model = ChatBedrock(
+            model_id=model_id,
+            client=self.client,
+            provider="mistral"
+        )
+
+        collection = vector_store._collection
+        document_count = collection.count()
+        docs = retriever.get_relevant_documents(prompt)
+        breakpoint()
+
+        # Set up RetrievalQA chain
+        qa = RetrievalQA.from_chain_type(
+            llm=chat_model,
+            chain_type="stuff",
+            retriever=retriever
+        )
+
+        # Run a sample query
+        answer = qa.invoke(prompt)
 
     def invoke_model(
         self,

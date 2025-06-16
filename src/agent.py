@@ -49,6 +49,8 @@ class RAGAgent:
             Answer:"""
         return self.answer_question(answer_prompt)
 
+    def answer_from_db(self, question: str) -> str:
+        return self.bedrock.retrieve_from_db(self.model_id, question)
     def answer_question(self, question: str) -> str:
         """
         Retrieves relevant document chunks and queries Bedrock to generate an answer.
