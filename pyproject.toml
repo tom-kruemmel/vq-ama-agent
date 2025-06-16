@@ -10,12 +10,14 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.10"
 openai = "^0.27.0"
-langchain = "^0.0.200"
+langchain = "^0.3.25"
 faiss-cpu = "^1.7.2"
 PyYAML = "^6.0"
 python-dotenv = "^1.0.0"
-typer = "^0.7.0"
+typer = "^0.9.0"
 boto3 = "^1.28.0"
+langchain-community = "^0.3.25"
+chromadb = "^1.0.12"
 
 [tool.poetry.scripts]
 vq-ama-agent = "src.main:cli"

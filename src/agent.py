@@ -3,6 +3,7 @@ from typing import List
 
 from .bedrock_client import BedrockClient
 from .retriever import VectorRetriever
+from langchain.prompts import ChatPromptTemplate
 # from .prompt_templates import RAG_PROMPT
 
 class RAGAgent:
@@ -29,6 +30,25 @@ class RAGAgent:
         self.top_p = top_p
         self.k = k
 
+    def generate_queries(self, question) -> str:
+        prompt = ChatPromptTemplate.from_template("""
+        You are an AI assistant. Generate five different rewrites of the user's question to help retrieve relevant documents from a vector database. Separate each rewritten question with a newline. Only use newlines after the first four questions. Just create the questions without any additional text.
+
+        User's question: {question}
+        """)
+        return self.answer_question(prompt.format_messages(question=question))
+
+    def generate_answer(self, question, context_docs):
+        context = "\n\n".join(context_docs[:5])  # Limit context to top 5 documents
+        answer_prompt = f"""
+            Context:
+            {context}
+
+            Question: {question}
+
+            Answer:"""
+        return self.answer_question(answer_prompt)
+
     def answer_question(self, question: str) -> str:
         """
         Retrieves relevant document chunks and queries Bedrock to generate an answer.
@@ -48,7 +68,7 @@ class RAGAgent:
             temperature=self.temperature,
             top_p=self.top_p,
         )
-        return response["results"][0]["outputText"]
+        return response['output']['message']['content'][0]['text']
         
         #         # 4. Parse and return the generated answer
         # # Assuming response['results'] is a list of dicts with 'content'

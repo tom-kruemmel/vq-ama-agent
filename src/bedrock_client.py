@@ -2,6 +2,9 @@ import os
 import json
 import boto3
 from typing import Dict, Any, List
+import boto3
+from langchain_community.chat_models.bedrock import BedrockChat
+from langchain.prompts import ChatPromptTemplate
 
 class BedrockClient:
     """
@@ -35,6 +38,19 @@ class BedrockClient:
         resp = meta.list_foundation_models()
         return resp.get('foundationModels', [])
 
+    # def create_inference_profile(
+    #     self):
+    #     control_plane = boto3.client('bedrock', region_name='eu-central-1')
+    #     res = control_plane.create_inference_profile(
+    #         inferenceProfileName='my-pixtral-profile',
+    #         modelSource={
+    #             'copyFrom': 'arn:aws:bedrock:eu-central-1::foundation-model/mistral.pixtral-large-2502-v1:0'
+    #         },
+    #         description='Profile for Pixtral Large',
+    #         tags=[{'key': 'Project', 'value': 'MyApp'}]
+    #     )
+    #     return res['inferenceProfileArn']
+
     def invoke_model(
         self,
         model_id: str,
@@ -50,19 +66,74 @@ class BedrockClient:
         #     'top_p': top_p,
         # }
 
+        #bedrock_client = boto3.client(service_name='bedrock-runtime')
+
+        # chat_model = BedrockChat(
+        #     model_id=model_id,
+        #     client=bedrock_client,
+        #     model_kwargs={
+        #         "max_tokens": max_tokens,
+        #         "temperature": temperature,
+        #         "top_k": 250,
+        #         "top_p": top_p,
+        #         "stop_sequences": ["\n\n\n"],
+        #     }
+        # )
+        # response = chat_model.invoke(prompt)
+        # return response.content.strip().split("\n")
+
+        if isinstance(prompt, list):
+            try:
+                input_text = "\n".join([msg.content for msg in prompt])
+            except AttributeError:
+                raise TypeError("Prompt list must contain objects with a 'content' attribute.")
+        elif hasattr(prompt, "content"):  # Ein einzelnes HumanMessage-Objekt
+            input_text = prompt.content
+        elif isinstance(prompt, str):
+            input_text = prompt
+        else:
+            raise TypeError(f"Unsupported prompt type: {type(prompt)}")
+
+        # payload = {
+        #     "inputText": input_text,
+        #     "textGenerationConfig": {
+        #         "maxTokenCount": 512,
+        #         "temperature": 0.7,
+        #         "topP": 1.0
+        #     }
+        # }
+
+        payload_messages = [
+            {"role": "system", "content": [{"text": "You are a helpful assistant."}]},
+            {"role": "user",   "content": [{"text": input_text}]}
+        ]
+
+
         payload = {
-            "inputText": prompt,
-            "textGenerationConfig": {
-                "maxTokenCount": 512,
+            "messages": payload_messages,
+            "inferenceConfig": {
+                "maxTokens": 512,
                 "temperature": 0.7,
                 "topP": 1.0
             }
         }
-        resp = self.client.invoke_model(
+        # resp = self.client.converse(
+        #     modelId=model_id, 
+        #     contentType='application/json',
+        #     accept='application/json',
+        #     body=json.dumps(payload),
+        # )
+
+        resp = self.client.converse(
             modelId=model_id,
-            contentType='application/json',
-            accept='application/json',
-            body=json.dumps(payload),
+            system=[{"text": "You are a helpful assistant."}],
+            messages=[
+                {"role": "user", "content": [{"text": input_text}]}
+            ],
+            inferenceConfig=payload ["inferenceConfig"]
         )
-        body = resp['body'].read()
-        return json.loads(body)
+
+        return resp
+
+        # body = resp['body'].read()
+        # return json.loads(body)

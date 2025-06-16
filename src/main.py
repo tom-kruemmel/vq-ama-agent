@@ -6,6 +6,8 @@ import typer
 from .bedrock_client import BedrockClient
 #from .retriever import VectorRetriever
 from .agent import RAGAgent
+from .embeddings import Embeddings
+from .rank_fusion import RankFusion
 
 app = typer.Typer()
 
@@ -15,8 +17,15 @@ def chat_loop(agent: RAGAgent):
         question = typer.prompt("You")
         if question.lower() in ("exit", "quit"):
             break
-        answer = agent.answer_question(question)
-        typer.echo(f"Agent: {answer}\n")
+        # answer = agent.answer_question(question)
+        queries = agent.generate_queries(question)
+        retriever = Embeddings()
+        retrieved_docs = retriever.retrieve_documents(queries)
+        fusion = RankFusion()
+        fused_docs = fusion.reciprocal_rank_fusion(retrieved_docs)
+        final_answer = agent.generate_answer(question, fused_docs)
+        typer.echo(f"Agent: {final_answer}\n")
+
 
 @app.command()
 def cli():
