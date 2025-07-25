@@ -4,32 +4,53 @@ import boto3
 from langchain_aws import BedrockEmbeddings
 from langchain_chroma import Chroma
 from hashlib import md5
+import os
+import json
+import copy
 
 class PdfPersister:
-
-    def __init__(self, directory: str, chunk_size: int = 1000, chunk_overlap: int = 200):
+    def __init__(
+        self,
+        directory: str,
+        role_map: dict[str, list[str]],
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+    ):
         """
-        Initializes the PdfPersister with a directory containing PDF files.
-
         Args:
-            directory (str): Path to the directory containing PDF files.
-            chunk_size (int): Size of each text chunk.
-            chunk_overlap (int): Overlap between chunks.
+            directory: folder containing your PDFs.
+            role_map: mapping from PDF-filename (or dirname) → list of roles allowed.
+                      e.g. { "confidential.pdf": ["admin"], "public.pdf": ["admin","user"] }
         """
         self.loader = PyPDFDirectoryLoader(directory)
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap
         )
-        
+        self.role_map = role_map
 
-    def generate_doc_id(self, doc) -> str:
-        return md5(doc.page_content.encode("utf-8")).hexdigest()
+    def generate_doc_id(self, doc, role) -> str:
+        return md5(doc.page_content.encode("utf-8") + role.encode("utf-8")).hexdigest()
 
-    def load_and_split_pdfs(self, pdf_folder: str):
+    def load_and_split_pdfs(self):
         docs = self.loader.load()
-        return self.text_splitter.split_documents(docs)
-    
+        split = self.text_splitter.split_documents(docs)
+        all_docs = []
+
+        for doc in split:
+            fname = os.path.basename(doc.metadata["source"])
+            allowed_roles = self.role_map.get(fname, [])  # default: nobody
+            allowed_roles.sort()
+
+            for role in allowed_roles:
+                doc_copy = copy.deepcopy(doc)
+                doc_copy.metadata["allowed_roles"] = role
+                doc_copy.metadata["doc_id"] = self.generate_doc_id(doc_copy, role)
+                # Optionally save doc_copy to disk or DB here
+                all_docs.append(doc_copy)
+
+        return all_docs
+
     def persist_pdfs(self):
         # Initialize Bedrock embeddings
         bedrock = boto3.client("bedrock-runtime")
@@ -38,34 +59,25 @@ class PdfPersister:
             client=bedrock
         )
 
-        # Load and chunk documents
-        docs = self.load_and_split_pdfs("data/")
+        # 2) load & split + tag
+        docs = self.load_and_split_pdfs()
+        texts = [d.page_content for d in docs]
+        metas = [d.metadata for d in docs]
+        ids   = [d.metadata["doc_id"]       for d in docs]
 
-        for doc in docs:
-            doc.metadata["doc_id"] = self.generate_doc_id(doc)
-
-        # Prepare lists for Chroma
-        texts = [doc.page_content for doc in docs]
-        metadatas = [doc.metadata for doc in docs]
-        ids = [doc.metadata["doc_id"] for doc in docs] 
-
-        texts = [doc.page_content for doc in docs]
+        # 3) embed
         embeddings_list = embeddings.embed_documents(texts)
 
+        # 4) upsert into a single Chroma collection
         collection = Chroma(
             persist_directory="./chroma_store",
-            collection_name="pdf_docs",
+            collection_name="pdf_with_roles",
             embedding_function=embeddings,
         )
-
         collection._collection.upsert(
             ids=ids,
             embeddings=embeddings_list,
             documents=texts,
-            metadatas=[doc.metadata for doc in docs],
+            metadatas=metas,
         )
-
-        print(f"Document count: {collection._collection.count()}")
-
-        # Persist the vector store
-        #vector_store.persist()
+        print("Total docs:", collection._collection.count())

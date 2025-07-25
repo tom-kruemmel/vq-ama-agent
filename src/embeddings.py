@@ -15,24 +15,41 @@ class Embeddings:
     def split_string_by_newlines(self, input_string):
         return input_string.split('\n')
 
-    def retrieve_documents(self, queries, top_k=5):
-        query_list = self.split_string_by_newlines(queries)
-        bedrock_client = boto3.client(service_name='bedrock-runtime')
+    def retrieve_documents(self, queries: str, user_roles: list[str], top_k: int = 5):
+        query_list = [q.strip() for q in queries.splitlines() if q.strip()]
+
+        # Build Bedrock embedding model
+        bedrock_client = boto3.client("bedrock-runtime")
         embedding_model = BedrockEmbeddings(
             client=bedrock_client,
-            model_id="amazon.titan-embed-text-v2:0"
+            model_id="amazon.titan-embed-text-v2:0",
         )
 
-        # Initialize the vector store
+        # Load the vector store
         vector_store = Chroma(
             persist_directory="./chroma_store",
-            collection_name="pdf_docs",
+            collection_name="pdf_with_roles",
             embedding_function=embedding_model
         )
+
+        # Use the built-in filter argument to only match allowed_roles
         all_results = []
+        # for q in query_list:
+        #     docs = vector_store.similarity_search(
+        #         q,
+        #         k=top_k,
+        #         filter={ 
+        #             "allowed_roles": { "$in": user_roles }
+        #         }
+        #     )
+        #     all_results.append(docs)
         for q in query_list:
-            if len(q) == 0:
-                continue 
-            docs = vector_store.similarity_search(q, k=top_k)
-            all_results.append(docs)
+            docs = vector_store.similarity_search(
+                q,
+                k=top_k,
+                filter={ 
+                    "allowed_roles": {"$in": user_roles}  # pass the whole list
+                }
+            )
+            all_results.extend(docs)
         return all_results

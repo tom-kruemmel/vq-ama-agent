@@ -9,10 +9,11 @@ from .agent import RAGAgent
 from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .pdf_persister import PdfPersister
+from .role_assigner_validator import RoleAssignerValidator
 
 app = typer.Typer()
 
-def chat_loop(agent: RAGAgent):
+def chat_loop(agent: RAGAgent, user_roles: list[str]):
     typer.echo("Starting chat (type ‘exit’ to quit)…")
     while True:
         question = typer.prompt("You")
@@ -22,7 +23,7 @@ def chat_loop(agent: RAGAgent):
         # agent.answer_from_db(question)
         queries = agent.generate_queries(question)
         retriever = Embeddings()
-        retrieved_docs = retriever.retrieve_documents(queries)
+        retrieved_docs = retriever.retrieve_documents(queries, user_roles)
         fusion = RankFusion()
         fused_docs = fusion.reciprocal_rank_fusion(retrieved_docs)
         final_answer = agent.generate_answer(question, fused_docs)
@@ -31,14 +32,19 @@ def chat_loop(agent: RAGAgent):
 
 @app.command()
 def cli():
+    user_roles = ["admin"]  # Example roles, can be dynamic based on user context
     load_dotenv()
     model_id = os.getenv("BEDROCK_MODEL_ID")
     #retriever = VectorRetriever(os.getenv("INDEX_PATH", "data/processed/faiss_index.faiss"))
     bedrock = BedrockClient()
     agent = RAGAgent(bedrock, model_id)
-    persister = PdfPersister(directory="data/confluence_pdfs", chunk_size=1000, chunk_overlap=200)
+    validator = RoleAssignerValidator(directory="data/confluence_pdfs")
+    valid, missing, unknown = validator.validate_role_assignments()
+    if missing:
+        typer.echo(f"Missing role assignments for: {', '.join(missing)}")
+    persister = PdfPersister(directory="data/confluence_pdfs", role_map=RoleAssignerValidator.pdf_to_roles_map, chunk_size=1000, chunk_overlap=200)
     persister.persist_pdfs()
-    chat_loop(agent)
+    chat_loop(agent,user_roles)
 
 if __name__ == "__main__":
     app()
