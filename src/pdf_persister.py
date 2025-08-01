@@ -1,4 +1,6 @@
 from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain.schema import Document
+#from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import boto3
 from langchain_aws import BedrockEmbeddings
@@ -12,7 +14,7 @@ class PdfPersister:
         self,
         directory: str,
         role_map: dict[str, list[str]],
-        heading_role_map: dict[str, list[str]] | None = None,
+        heading_list: list[str] | None = None,
         default_heading: str = "default",
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
@@ -24,9 +26,9 @@ class PdfPersister:
             heading_role_map: optional mapping from PDF-filename → list of headings to track.
             default_heading: label to use when no heading context applies.
         """
-        self.loader = PyPDFDirectoryLoader(directory)
+        self.loader = PyPDFDirectoryLoader(directory) # UnstructuredPDFLoader(directory, mode="single") 
         self.role_map = role_map
-        self.heading_role_map = heading_role_map or {}
+        self.heading_list= heading_list or []
         self.default_heading = default_heading
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -39,14 +41,41 @@ class PdfPersister:
         # unique per text + role
         return md5(text.encode("utf-8") + role.encode("utf-8")).hexdigest()
 
+    def merge_docs(self, raw_docs: list) -> list:
+        docs_by_file = {}
+        for doc in raw_docs:
+            fname = os.path.basename(doc.metadata["source"])
+            docs_by_file.setdefault(fname, []).append(doc.page_content)
+
+        merged_docs = []
+        for fname, pages in docs_by_file.items():
+            merged_text = "\n\n".join(pages)
+            merged_docs.append(
+                Document(
+                page_content=merged_text,
+                metadata={"source": fname}
+                )
+            )
+        return merged_docs
+
+    
+    def check_for_heading(self, text, headings, current_heading) -> str:
+        for heading in headings:
+            true_heading = "\n" + heading + "\n"
+            if true_heading in text:
+                return heading
+        return current_heading
+
     def load_and_split_pdfs(self):
         raw_docs = self.loader.load()
         all_chunks = []
 
-        for doc in raw_docs:
+        merged_docs = self.merge_docs(raw_docs)
+    
+        for doc in merged_docs:
             fname = os.path.basename(doc.metadata["source"])
             roles = sorted(self.role_map.get(fname, []))
-            headings = self.heading_role_map.get(fname, [])
+            headings = self.heading_list
 
             # if headings configured but none appear, emit whole page per role
             if headings and not any(h in doc.page_content for h in headings):
@@ -70,9 +99,7 @@ class PdfPersister:
                     continue
 
                 # heading marker
-                if text in headings:
-                    current_heading = text
-                    continue
+                current_heading = self.check_for_heading(text, headings, current_heading)
 
                 # chunk content
                 if len(text) > self.chunk_size:
@@ -92,6 +119,9 @@ class PdfPersister:
                             "heading": current_heading,
                             "doc_id": self.generate_doc_id(c.page_content, role)
                         })
+                        # if current_heading != self.default_heading:
+                        #     print(self.generate_doc_id(c.page_content, role))
+                        #     breakpoint()
                         all_chunks.append(c)
 
         return all_chunks

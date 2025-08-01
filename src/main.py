@@ -10,10 +10,11 @@ from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .pdf_persister import PdfPersister
 from .role_assigner_validator import RoleAssignerValidator
+from .chat_app import run_chat_server
 
 app = typer.Typer()
 
-def chat_loop(agent: RAGAgent, user_roles: list[str]):
+def chat_loop(agent: RAGAgent, user_roles: list[str], headings: list[str]):
     typer.echo("Starting chat (type ‘exit’ to quit)…")
     while True:
         question = typer.prompt("You")
@@ -23,7 +24,7 @@ def chat_loop(agent: RAGAgent, user_roles: list[str]):
         # agent.answer_from_db(question)
         queries = agent.generate_queries(question)
         retriever = Embeddings()
-        retrieved_docs = retriever.retrieve_documents(queries, user_roles)
+        retrieved_docs = retriever.retrieve_documents(queries, user_roles, headings)
         fusion = RankFusion()
         fused_docs = fusion.reciprocal_rank_fusion(retrieved_docs)
         final_answer = agent.generate_answer(question, fused_docs)
@@ -32,7 +33,8 @@ def chat_loop(agent: RAGAgent, user_roles: list[str]):
 
 @app.command()
 def cli():
-    user_roles = ["admin"]  # Example roles, can be dynamic based on user context
+    user_roles = ["engineer"]  
+    headings = ["default", "Confidential"]
     load_dotenv()
     model_id = os.getenv("BEDROCK_MODEL_ID")
     #retriever = VectorRetriever(os.getenv("INDEX_PATH", "data/processed/faiss_index.faiss"))
@@ -42,9 +44,10 @@ def cli():
     valid, missing, unknown = validator.validate_role_assignments()
     if missing:
         typer.echo(f"Missing role assignments for: {', '.join(missing)}")
-    persister = PdfPersister(directory="data/confluence_pdfs", role_map=RoleAssignerValidator.pdf_to_roles_map, chunk_size=1000, chunk_overlap=200)
+    persister = PdfPersister(directory="data/confluence_pdfs", role_map=RoleAssignerValidator.pdf_to_roles_map, heading_list=RoleAssignerValidator.heading_list, chunk_size=1000, chunk_overlap=200)
     persister.persist_pdfs()
-    chat_loop(agent,user_roles)
+    # chat_loop(agent,user_roles, headings)
+    run_chat_server(agent, user_roles, headings)
 
 if __name__ == "__main__":
     app()

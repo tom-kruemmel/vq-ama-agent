@@ -1,6 +1,14 @@
 from collections import defaultdict
 
 class RankFusion:
+
+    def print_headings(self, all_results):
+        """
+        Prints the headings of the documents in all_results.
+        """
+        for doc in all_results:
+            print(doc.metadata.get("heading", "No heading found"))
+
     def reciprocal_rank_fusion(self, results_list, k=60):
         scores = defaultdict(float)
         for rank, doc in enumerate(results_list):

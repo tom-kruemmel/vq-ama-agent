@@ -9,8 +9,14 @@ class RoleAssignerValidator:
         "PRODM-Net Promoter Score (NPS)-250725-101932.pdf": ["engineer"],
         "PRODM-PM Process and Gates-250725-102254.pdf": ["engineer"],
         "PRODM-Termine 2.0 Voice-250725-101726.pdf": ["engineer"],
-        "PRODM-Termine dynamisch (intelligenten Terminmanagement)-250725-101400.pdf": ["engineer"]
+        "PRODM-Termine dynamisch (intelligenten Terminmanagement)-250725-101400.pdf": ["engineer"],
+        "PRODM-Call Preparation.-280725-153124.pdf": ["engineer"]
     }
+
+    heading_list = [
+        "default",
+        "Confidential"
+    ]
 
     def __init__(self, directory: str):
         """
