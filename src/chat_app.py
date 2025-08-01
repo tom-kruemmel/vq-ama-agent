@@ -35,47 +35,84 @@ CHAT_HTML = """
     <textarea id="message" rows="2" placeholder="Type your message..."></textarea>
     <button id="send">Send</button>
   </div>
-  <script>
-    const chat = document.getElementById('chat');
-    const messageInput = document.getElementById('message');
-    const sendBtn = document.getElementById('send');
+<script>
+  const chat = document.getElementById('chat');
+  const messageInput = document.getElementById('message');
+  const sendBtn = document.getElementById('send');
 
-    function appendMessage(sender, text) {
+  function appendMessage(sender, text, id = null) {
     const div = document.createElement('div');
     div.className = 'message ' + (sender === 'You' ? 'user' : 'agent');
+    if (id) div.id = id;
 
-    // First escape HTML special chars to prevent injection
     const escaped = text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
-    // Then convert newlines into <br> tags
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
     const html = `<strong>${sender}:</strong> ${escaped.replace(/\\n/g, '<br>')}`;
 
     div.innerHTML = html;
     chat.appendChild(div);
     chat.scrollTop = chat.scrollHeight;
-    }
+  }
 
-    async function sendMessage() {
-      const text = messageInput.value.trim();
-      if (!text) return;
-      appendMessage('You', text);
-      messageInput.value = '';
+  function showThinkingAnimation(id) {
+    let dotCount = 0;
+    const maxDots = 3;
+    const element = document.getElementById(id);
+    return setInterval(() => {
+      dotCount = (dotCount + 1) % (maxDots + 1);
+      const dots = '.'.repeat(dotCount);
+      if (element) {
+        element.innerHTML = `<strong>Agent:</strong> Thinking${dots}`;
+      }
+    }, 500);
+  }
 
+  async function sendMessage() {
+    const text = messageInput.value.trim();
+    if (!text) return;
+    appendMessage('You', text);
+    messageInput.value = '';
+
+    const thinkingId = `thinking-${Date.now()}`; // unique ID per message
+    appendMessage('Agent', 'Thinking', thinkingId);
+    const thinkingInterval = showThinkingAnimation(thinkingId);
+
+    try {
       const resp = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: text })
       });
       const data = await resp.json();
-      appendMessage('Agent', data.answer);
-    }
 
-    sendBtn.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }});
-  </script>
+      clearInterval(thinkingInterval);
+      const placeholder = document.getElementById(thinkingId);
+      if (placeholder) {
+        const escaped = data.answer
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        placeholder.innerHTML = `<strong>Agent:</strong> ${escaped.replace(/\\n/g, '<br>')}`;
+      }
+    } catch (error) {
+      clearInterval(thinkingInterval);
+      const placeholder = document.getElementById(thinkingId);
+      if (placeholder) {
+        placeholder.innerHTML = `<strong>Agent:</strong> Error receiving response.`;
+      }
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  messageInput.addEventListener('keypress', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+</script>
 </body>
 </html>
 """
