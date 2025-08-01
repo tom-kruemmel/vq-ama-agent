@@ -18,7 +18,10 @@ CHAT_HTML = """
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
     #chat { flex: 1; overflow-y: auto; padding: 1em; border-bottom: 1px solid #ccc; }
-    .message { margin: 0.5em 0; }
+    .message { 
+      margin: 0.5em 0; 
++     white-space: pre-wrap;    /* ← preserve agent’s line breaks */
+    }
     .user { color: #2a6f97; }
     .agent { color: #6f972a; }
     #input { display: flex; padding: 1em; }
@@ -38,11 +41,21 @@ CHAT_HTML = """
     const sendBtn = document.getElementById('send');
 
     function appendMessage(sender, text) {
-      const div = document.createElement('div');
-      div.className = 'message ' + (sender === 'You' ? 'user' : 'agent');
-      div.textContent = `${sender}: ${text}`;
-      chat.appendChild(div);
-      chat.scrollTop = chat.scrollHeight;
+    const div = document.createElement('div');
+    div.className = 'message ' + (sender === 'You' ? 'user' : 'agent');
+
+    // First escape HTML special chars to prevent injection
+    const escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    // Then convert newlines into <br> tags
+    const html = `<strong>${sender}:</strong> ${escaped.replace(/\\n/g, '<br>')}`;
+
+    div.innerHTML = html;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
     }
 
     async function sendMessage() {
