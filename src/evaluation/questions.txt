@@ -1,0 +1,20 @@
+What are the legal criteria for 3rd party software?
+Which programming languages do we use?
+What are the central frameworks?
+What are internal and external audits and how do they differ?
+What are acd connectors?
+How is reliability and compliance achieved?
+What ensures security and performance?
+How do we achieve cost efficiency and extensibility?
+What is the corporate data flow?
+How is Bigquery used in our system?
+What is Bigquery?
+How do we ensure that no PII Data can be accessed by someone who is not supposed to be able to do so?
+how do we know which code is tested?
+What is the organizational structure of vq?
+Which different optimizers are there?
+How are the optimizers different?
+How do I know which optimizer to use?
+What does the vds do?
+How do we protect our system?
+How do we ensure SGB compliance?

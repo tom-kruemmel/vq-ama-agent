@@ -10,7 +10,8 @@ class RoleAssignerValidator:
         "PRODM-PM Process and Gates-250725-102254.pdf": ["engineer"],
         "PRODM-Termine 2.0 Voice-250725-101726.pdf": ["engineer"],
         "PRODM-Termine dynamisch (intelligenten Terminmanagement)-250725-101400.pdf": ["engineer"],
-        "PRODM-Call Preparation.-280725-153124.pdf": ["engineer"]
+        "PRODM-Call Preparation.-280725-153124.pdf": ["engineer"],
+        "Copy of TechDD.pdf": ["engineer", "user", "admin"],
     }
 
     heading_list = [

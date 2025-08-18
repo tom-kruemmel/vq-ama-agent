@@ -9,7 +9,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-openai = "^0.27.0"
+openai = "1.99.6"
 langchain = "^0.3.25"
 faiss-cpu = "^1.7.2"
 PyYAML = "^6.0"
@@ -29,6 +29,13 @@ pdf2image = "^1.17.0"
 poppler-utils = "^0.1.0"
 flask = "^3.1.1"
 flask-cors = "^6.0.1"
+ragas= "^0.3.0"
+pyarrow = ">=14.0.1,<20.0.0"
+trulens="^2.2.1"
+trulens-providers-bedrock="^2.2.1"
+trulens-providers-litellm="^2.2.1"
+trulens-dashboard="^2.2.1"
 
 [tool.poetry.scripts]
 vq-ama-agent = "src.main:cli"
+evaluate-rag = "src.evaluation.ragas_eval:main"
