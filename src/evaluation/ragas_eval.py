@@ -674,18 +674,44 @@ from deepeval.models.base_model import DeepEvalBaseLLM
 import litellm
 
 
+import time
+import asyncio
+
+import litellm
+from pydantic import BaseModel
+from deepeval.models import DeepEvalBaseLLM  # or your actual import
+
+
 class LenientLiteLLMModel(DeepEvalBaseLLM):
     """
     LiteLLM (Bedrock) -> DeepEval bridge with robust JSON coercion:
       - Supports DeepEval schemas for Statements, Claims, Truths, Verdicts
       - Handles pydantic v1/v2
       - Returns only the parsed object (NOT a tuple)
-    """
 
-    def __init__(self, *, model: str, aws_region_name: str, **kwargs):
+    Now also:
+      - exposes timeout + retry behaviour explicitly
+      - uses longer default timeout to reduce Bedrock ReadTimeouts
+    """
+    def __init__(
+        self,
+        *,
+        model: str,
+        aws_region_name: str,
+        timeout: int = 300,         # <-- default judge timeout
+        max_retries: int = 2,
+        retry_sleep: float = 0.5,
+        **kwargs,
+    ):
         self.model = model
         self.aws_region_name = aws_region_name
-        self.kwargs = kwargs
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_sleep = retry_sleep
+
+        # Store whatever DeepEval / caller passes (may already include "timeout")
+        self.kwargs: Dict[str, Any] = kwargs
+
         self.load_model()
 
     # ---- DeepEvalBaseLLM required ----
@@ -721,7 +747,8 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
                 elif isinstance(v, dict):
                     for k in ("statement", "truth", "claim", "text", "item"):
                         if isinstance(v.get(k), str):
-                            out.append(v[k]); break
+                            out.append(v[k])
+                            break
         elif isinstance(values, str):
             out = [values]
         if not out:
@@ -788,15 +815,33 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
         fields = self._pd_fields(schema)
 
         if "statements" in fields:
-            stmts = raw.get("statements") or raw.get("claims") or raw.get("truths") or raw.get("items") or raw.get("text")
+            stmts = (
+                raw.get("statements")
+                or raw.get("claims")
+                or raw.get("truths")
+                or raw.get("items")
+                or raw.get("text")
+            )
             return {"statements": self._wrap_plain_list_of_str(stmts)}
 
         if "truths" in fields:
-            truths = raw.get("truths") or raw.get("claims") or raw.get("statements") or raw.get("items") or raw.get("text")
+            truths = (
+                raw.get("truths")
+                or raw.get("claims")
+                or raw.get("statements")
+                or raw.get("items")
+                or raw.get("text")
+            )
             return {"truths": self._wrap_plain_list_of_str(truths)}
 
         if "claims" in fields:
-            claims = raw.get("claims") or raw.get("truths") or raw.get("statements") or raw.get("items") or raw.get("text")
+            claims = (
+                raw.get("claims")
+                or raw.get("truths")
+                or raw.get("statements")
+                or raw.get("items")
+                or raw.get("text")
+            )
             return {"claims": self._wrap_plain_list_of_str(claims)}
 
         if "verdicts" in fields:
@@ -813,18 +858,36 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
         fields = self._pd_fields(schema)
 
         if "truths" in fields:
-            truths = raw.get("truths") or raw.get("claims") or raw.get("statements") or raw.get("items") or raw.get("text")
+            truths = (
+                raw.get("truths")
+                or raw.get("claims")
+                or raw.get("statements")
+                or raw.get("items")
+                or raw.get("text")
+            )
             return {"truths": [{"truth": t} for t in self._wrap_plain_list_of_str(truths)]}
 
         if "claims" in fields:
-            claims = raw.get("claims") or raw.get("truths") or raw.get("statements") or raw.get("items") or raw.get("text")
+            claims = (
+                raw.get("claims")
+                or raw.get("truths")
+                or raw.get("statements")
+                or raw.get("items")
+                or raw.get("text")
+            )
             return {"claims": [{"claim": c} for c in self._wrap_plain_list_of_str(claims)]}
 
         if "verdicts" in fields:
             return self._coerce_verdicts_str(raw)
 
         if "statements" in fields:
-            stmts = raw.get("statements") or raw.get("claims") or raw.get("truths") or raw.get("items") or raw.get("text")
+            stmts = (
+                raw.get("statements")
+                or raw.get("claims")
+                or raw.get("truths")
+                or raw.get("items")
+                or raw.get("text")
+            )
             return {"statements": self._wrap_plain_list_of_str(stmts)}
 
         return raw or {}
@@ -851,28 +914,69 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
                 except Exception:
                     return schema(**data2)
 
+    # ---- internal call helpers (with retry) ----
+    def _call_litellm(self, prompt: str):
+        last_exc = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                # Build params so we don't double-pass timeout
+                params = dict(self.kwargs)          # copy, don't mutate original
+                params.setdefault("timeout", self.timeout)
+
+                return litellm.completion(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    aws_region_name=self.aws_region_name,
+                    **params,
+                )
+            except Exception as e:
+                last_exc = e
+                if attempt == self.max_retries:
+                    raise
+                time.sleep(self.retry_sleep)
+        raise last_exc  # pragma: no cover
+
+    async def _acall_litellm(self, prompt: str):
+        last_exc = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                params = dict(self.kwargs)
+                params.setdefault("timeout", self.timeout)
+
+                return await litellm.acompletion(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    aws_region_name=self.aws_region_name,
+                    **params,
+                )
+            except Exception as e:
+                last_exc = e
+                if attempt == self.max_retries:
+                    raise
+                await asyncio.sleep(self.retry_sleep)
+        raise last_exc  # pragma: no cover
+
     # ---- DeepEval LLM interface ----
     def generate(self, prompt: str, schema: Optional[Type[BaseModel]] = None):
-        res = litellm.completion(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            aws_region_name=self.aws_region_name,
-            **self.kwargs,
-        )
+        res = self._call_litellm(prompt)
         choice = res.choices[0]
-        text = getattr(choice, "message", {}).get("content") if hasattr(choice, "message") else getattr(choice, "text", "")
+        text = (
+            getattr(choice, "message", {}).get("content")
+            if hasattr(choice, "message")
+            else getattr(choice, "text", "")
+        )
         return self._parse_with_schema(text or "", schema)
 
     async def a_generate(self, prompt: str, schema: Optional[Type[BaseModel]] = None):
-        res = await litellm.acompletion(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            aws_region_name=self.aws_region_name,
-            **self.kwargs,
-        )
+        res = await self._acall_litellm(prompt)
         choice = res.choices[0]
-        text = getattr(choice, "message", {}).get("content") if hasattr(choice, "message") else getattr(choice, "text", "")
+        text = (
+            getattr(choice, "message", {}).get("content")
+            if hasattr(choice, "message")
+            else getattr(choice, "text", "")
+        )
         return self._parse_with_schema(text or "", schema)
+
 
 
 
@@ -899,6 +1003,7 @@ from deepeval.test_case import LLMTestCase
 from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
 from deepeval import evaluate
 from deepeval.models import LiteLLMModel
+from botocore.config import Config
 
 # -------------------------
 # Helpers
@@ -971,6 +1076,12 @@ def main():
     parser.add_argument("--questions", required=True)
     parser.add_argument("--csv", default="deepeval_results.csv")
     parser.add_argument("--json", default="pipeline_outputs.json")
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        help="One or more Bedrock model IDs to evaluate (e.g. qwen... nova...). "
+             "If omitted, the script will auto-pick a single accessible model.",
+    )
     args = parser.parse_args()
 
     logger.info("Starting DeepEval evaluation (reference-free: faithfulness + answer relevancy)")
@@ -986,15 +1097,31 @@ def main():
     )
     _ = session.client("bedrock-runtime")
 
-    model_id = pick_accessible_model(session, preferred_id="qwen.qwen3-235b-a22b-2507-v1:0", region_name=region_name)
-    if not model_id:
-        model_id = pick_accessible_model(session, preferred_id="eu.amazon.nova-lite-v1:0", region_name=region_name)
+    # Determine which generation model(s) to use
+    if args.models:
+        model_ids = args.models
+        logger.info(f"Using user-specified models: {model_ids}")
+    else:
+        logger.info("No models specified via --models, trying auto-pick.")
+        model_id = pick_accessible_model(
+            session,
+            preferred_id="qwen.qwen3-235b-a22b-2507-v1:0",
+            region_name=region_name,
+        )
+        if not model_id:
+            model_id = pick_accessible_model(
+                session,
+                preferred_id="eu.amazon.nova-lite-v1:0",
+                region_name=region_name,
+            )
+        if not model_id:
+            raise RuntimeError("Could not find an accessible model on Bedrock.")
+        model_ids = [model_id]
+        logger.info(f"Auto-picked model: {model_id}")
 
     my_bedrock_client = BedrockClient()
-    agent = RAGAgent(my_bedrock_client, model_id)
     retriever = Embeddings()
     fusion = RankFusion()
-    app = RAGPipelineApp(agent=agent, retriever=retriever, fusion=fusion)
 
     with open(args.questions, "r", encoding="utf-8") as f:
         questions = [line.strip() for line in f if line.strip()]
@@ -1002,57 +1129,146 @@ def main():
         logger.warning("No questions found in the provided file. Exiting.")
         return
 
-    # LiteLLM bridge to Bedrock (no structured JSON required)
+    # Use a single judge model for all systems-under-test
+    judge_model_id = model_ids[0]
     judge_model = LenientLiteLLMModel(
-        model=f"bedrock/{model_id}",   # or a separate judge_id like a Nova model
+        model=f"bedrock/{judge_model_id}",
         aws_region_name=region_name,
         temperature=0,
         max_tokens=512,
         timeout=60,
-        # Hint JSON mode if supported; harmless otherwise:
         response_format={"type": "json_object"},
     )
 
+    # These Metric instances are used only by `evaluate` call.
     faithfulness = FaithfulnessMetric(model=judge_model, threshold=0.0)
     answer_rel = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
-
-    all_outputs = []
-    test_cases: List[LLMTestCase] = []
-    for q in questions:
-        answer = app.query(q, user_roles, headings)
-        contexts = app.last_contexts or []
-        all_outputs.append({"user_input": q, "retrieved_contexts": contexts, "response": answer})
-        test_cases.append(LLMTestCase(input=q, actual_output=answer, retrieval_context=contexts))
-        time.sleep(0.05)
-
-    # Run eval (no max_concurrency arg for older DeepEval versions)
     metrics = [faithfulness, answer_rel]
-    evaluate(test_cases=test_cases, metrics=metrics)
 
-    # Persist per-question scores
-    rows = []
-    for case in test_cases:
-        f = FaithfulnessMetric(model=judge_model, threshold=0.0)
-        ar = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
-        f.measure(case); ar.measure(case)
-        rows.append({
-            "question": case.input,
-            "faithfulness_score": getattr(f, "score", None),
-            "answer_relevancy_score": getattr(ar, "score", None),
-            "num_context_chunks": len(case.retrieval_context or []),
-        })
+    all_outputs = []  # for JSON
+    all_rows = []     # for CSV
 
+    # Run evaluation for each model separately
+    for gen_model_id in model_ids:
+        logger.info(f"Evaluating generation model: {gen_model_id}")
+
+        agent = RAGAgent(my_bedrock_client, gen_model_id)
+        app = RAGPipelineApp(agent=agent, retriever=retriever, fusion=fusion)
+
+        test_cases: List[LLMTestCase] = []
+        model_outputs = []
+
+        for q in questions:
+            print(q)
+            answer = app.query(q, user_roles, headings)
+            contexts = app.last_contexts or []
+
+            logger.info(
+                f"[CASE] model={gen_model_id} "
+                f"question={q[:80]!r} "
+                f"response_len={len(answer) if answer else 0} "
+                f"context_chunks={len(contexts)}"
+            )
+
+            model_outputs.append({
+                "model_id": gen_model_id,
+                "user_input": q,
+                "retrieved_contexts": contexts,
+                "response": answer,
+            })
+            test_cases.append(
+                LLMTestCase(
+                    input=q,
+                    actual_output=answer,
+                    retrieval_context=contexts,
+                )
+            )
+            time.sleep(0.05)
+
+        all_outputs.extend(model_outputs)
+
+        # Run eval for this model (DeepEval will attach scores to test_cases)
+        evaluate(test_cases=test_cases, metrics=metrics)
+
+        # Persist per-question scores (per-model, per-question)
+        for case in test_cases:
+            logger.info(
+                f"[METRICS] model={gen_model_id} question={case.input[:80]!r} "
+                f"chunks={len(case.retrieval_context or [])}"
+            )
+
+            # Default None in case of errors
+            faithfulness_score = None
+            answer_rel_score = None
+
+            # New instance per case to avoid any weird state
+            f = FaithfulnessMetric(model=judge_model, threshold=0.0)
+            ar = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
+
+            # Faithfulness
+            try:
+                f.measure(case)
+                faithfulness_score = getattr(f, "score", None)
+                logger.debug(
+                    f"[METRIC OK] Faithfulness "
+                    f"model={gen_model_id} question={case.input[:80]!r} "
+                    f"score={faithfulness_score}"
+                )
+            except Exception as e:
+                logger.exception(
+                    f"[METRIC ERROR] Faithfulness failed for "
+                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
+                )
+
+            time.sleep(0.15)
+
+            # Answer Relevancy
+            try:
+                ar.measure(case)
+                answer_rel_score = getattr(ar, "score", None)
+                logger.debug(
+                    f"[METRIC OK] AnswerRelevancy "
+                    f"model={gen_model_id} question={case.input[:80]!r} "
+                    f"score={answer_rel_score}"
+                )
+            except Exception as e:
+                logger.exception(
+                    f"[METRIC ERROR] AnswerRelevancy failed for "
+                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
+                )
+
+            time.sleep(0.25)
+
+            all_rows.append({
+                "model_id": gen_model_id,
+                "question": case.input,
+                "faithfulness_score": faithfulness_score,
+                "answer_relevancy_score": answer_rel_score,
+                "num_context_chunks": len(case.retrieval_context or []),
+            })
+
+    # Write combined CSV for all models
     import csv
     with open(args.csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "question", "faithfulness_score", "answer_relevancy_score", "num_context_chunks"
-        ])
-        writer.writeheader(); writer.writerows(rows)
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "model_id",
+                "question",
+                "faithfulness_score",
+                "answer_relevancy_score",
+                "num_context_chunks",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(all_rows)
     logger.info(f"Saved DeepEval metric results to {args.csv}")
 
+    # Write combined JSON for all models
     with open(args.json, "w", encoding="utf-8") as f:
         json.dump(all_outputs, f, ensure_ascii=False, indent=2)
     logger.info(f"Saved pipeline outputs to {args.json}")
+
 
 if __name__ == "__main__":
     # Optional noise control:
