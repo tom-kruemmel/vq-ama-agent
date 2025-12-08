@@ -1,29 +1,3 @@
-#!/usr/bin/env python3
-# visualize_deepeval.py
-#
-# Visualizes DeepEval result CSVs with columns:
-# question,faithfulness_score,answer_relevancy_score,num_context_chunks
-# and optionally: model_id
-#
-# If model_id is present, statistics are computed globally and per model.
-#
-# Global output (same as before):
-# - scatter_faithfulness_vs_relevancy.png
-# - hist_faithfulness_score.png
-# - hist_answer_relevancy_score.png
-# - lowest_faithfulness.png
-# - summary.txt
-# - below_threshold.csv  (rows with faithfulness < threshold, all models)
-#
-# Additional per-model output (if model_id column exists):
-# - scatter_faithfulness_vs_relevancy_<MODEL>.png
-# - hist_faithfulness_score_<MODEL>.png
-# - hist_answer_relevancy_score_<MODEL>.png
-# - lowest_faithfulness_<MODEL>.png
-# - below_threshold_<MODEL>.csv
-#
-# where <MODEL> is a sanitized version of model_id.
-
 import argparse
 import os
 import sys
@@ -32,6 +6,16 @@ import textwrap
 
 import pandas as pd
 import matplotlib.pyplot as plt
+
+
+# All known metric columns (some may or may not be present in a given CSV)
+METRIC_COLUMNS = [
+    "faithfulness_score",
+    "answer_relevancy_score",
+    "contextual_relevancy_score",
+    "contextual_recall_score",
+    "contextual_precision_score",
+]
 
 
 def sanitize_model_id(model_id: str) -> str:
@@ -45,6 +29,7 @@ def sanitize_model_id(model_id: str) -> str:
 def read_data(csv_path: Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
 
+    # Minimal required columns for backwards compatibility
     base_expected = {"question", "faithfulness_score", "answer_relevancy_score", "num_context_chunks"}
     has_model = "model_id" in df.columns
 
@@ -57,9 +42,11 @@ def read_data(csv_path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV is missing expected columns: {missing}")
 
-    # Ensure correct dtypes
-    df["faithfulness_score"] = pd.to_numeric(df["faithfulness_score"], errors="coerce")
-    df["answer_relevancy_score"] = pd.to_numeric(df["answer_relevancy_score"], errors="coerce")
+    # Ensure correct dtypes for all known metric columns that actually exist
+    present_metrics = [col for col in METRIC_COLUMNS if col in df.columns]
+    for col in present_metrics:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
     df["num_context_chunks"] = pd.to_numeric(df["num_context_chunks"], errors="coerce").astype("Int64")
     df["question"] = df["question"].astype(str)
 
@@ -69,45 +56,53 @@ def read_data(csv_path: Path) -> pd.DataFrame:
         # Backwards compatibility: treat as single model "ALL"
         df["model_id"] = "ALL"
 
-    # Drop rows with NaNs in key columns
+    # Drop rows with NaNs in key columns (keep contextual metrics optional)
     df = df.dropna(subset=["faithfulness_score", "answer_relevancy_score", "num_context_chunks"])
     return df
 
 
 def save_summary(df: pd.DataFrame, outdir: Path, faithfulness_threshold: float) -> None:
+    metrics_present = [col for col in METRIC_COLUMNS if col in df.columns]
+
     # Global stats
     total = len(df)
-    mean_f = df["faithfulness_score"].mean()
-    mean_r = df["answer_relevancy_score"].mean()
     below = (df["faithfulness_score"] < faithfulness_threshold).sum()
 
     lines = [
         "DeepEval Summary",
         "----------------",
         f"Rows (all models): {total}",
-        f"Mean faithfulness (all models): {mean_f:.3f}",
-        f"Mean answer relevancy (all models): {mean_r:.3f}",
-        f"Below faithfulness threshold ({faithfulness_threshold:.2f}) (all models): {below}",
-        "",
-        "Per-model statistics",
-        "--------------------",
     ]
 
+    # Global metric means
+    for col in metrics_present:
+        pretty = col.replace("_", " ").capitalize()
+        mean_val = df[col].mean()
+        lines.append(f"Mean {pretty} (all models): {mean_val:.3f}")
+
+    lines.append(f"Below faithfulness threshold ({faithfulness_threshold:.2f}) (all models): {below}")
+    lines.extend(
+        [
+            "",
+            "Per-model statistics",
+            "--------------------",
+        ]
+    )
+
+    # Per-model stats
     for model_id, g in df.groupby("model_id"):
         m_total = len(g)
-        m_mean_f = g["faithfulness_score"].mean()
-        m_mean_r = g["answer_relevancy_score"].mean()
         m_below = (g["faithfulness_score"] < faithfulness_threshold).sum()
-        lines.extend(
-            [
-                f"Model: {model_id}",
-                f"  Rows: {m_total}",
-                f"  Mean faithfulness: {m_mean_f:.3f}",
-                f"  Mean answer relevancy: {m_mean_r:.3f}",
-                f"  Below threshold ({faithfulness_threshold:.2f}): {m_below}",
-                "",
-            ]
-        )
+        lines.append(f"Model: {model_id}")
+        lines.append(f"  Rows: {m_total}")
+
+        for col in metrics_present:
+            pretty = col.replace("_", " ").capitalize()
+            mean_val = g[col].mean()
+            lines.append(f"  Mean {pretty}: {mean_val:.3f}")
+
+        lines.append(f"  Below threshold ({faithfulness_threshold:.2f}): {m_below}")
+        lines.append("")
 
     summary = "\n".join(lines).rstrip()
     (outdir / "summary.txt").write_text(summary, encoding="utf-8")
@@ -155,6 +150,9 @@ def plot_hist(
     label: str | None = None,
     suffix: str = "",
 ) -> None:
+    if column not in df.columns:
+        return
+
     plt.figure()
     plt.hist(df[column].dropna(), bins=20)
     pretty_name = column.replace("_", " ").capitalize()
@@ -257,11 +255,16 @@ def main():
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
+    metrics_present = [col for col in METRIC_COLUMNS if col in df.columns]
+
     # Global summary & plots (all models together)
     save_summary(df, args.outdir, args.faithfulness_threshold)
     plot_scatter(df, args.outdir)  # global, no suffix
-    plot_hist(df, "faithfulness_score", args.outdir)
-    plot_hist(df, "answer_relevancy_score", args.outdir)
+
+    # Histograms for all present metrics (global)
+    for col in metrics_present:
+        plot_hist(df, col, args.outdir)
+
     plot_lowest_faithfulness(df, args.outdir, args.top_n)
     write_below_threshold(df, args.outdir, args.faithfulness_threshold)
 
@@ -272,24 +275,31 @@ def main():
         label = model_id
 
         plot_scatter(g, args.outdir, label=label, suffix=suffix)
-        plot_hist(g, "faithfulness_score", args.outdir, label=label, suffix=suffix)
-        plot_hist(g, "answer_relevancy_score", args.outdir, label=label, suffix=suffix)
+
+        # Histograms for all present metrics per model
+        for col in metrics_present:
+            plot_hist(g, col, args.outdir, label=label, suffix=suffix)
+
         plot_lowest_faithfulness(g, args.outdir, args.top_n, label=label, suffix=suffix)
         write_below_threshold(g, args.outdir, args.faithfulness_threshold, suffix=suffix)
 
     print(f"\nWrote figures and files to: {args.outdir.resolve()}")
     print("Global files (all models combined):")
+
+    # Always list the core files if they exist
     for name in [
         "summary.txt",
         "scatter_faithfulness_vs_relevancy.png",
-        "hist_faithfulness_score.png",
-        "hist_answer_relevancy_score.png",
         "lowest_faithfulness.png",
         "below_threshold.csv",
     ]:
         path = args.outdir / name
         if path.exists():
             print(f" - {name}")
+
+    # Dynamically list all histogram files
+    for hist_path in sorted(args.outdir.glob("hist_*.png")):
+        print(f" - {hist_path.name}")
 
     print(
         "\nPer-model files have filenames suffixed with _<sanitized_model_id>, "
