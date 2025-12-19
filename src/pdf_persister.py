@@ -8,6 +8,7 @@ from langchain_chroma import Chroma
 from hashlib import md5
 import os
 import copy
+from itertools import islice
 
 class PdfPersister:
     def __init__(
@@ -126,29 +127,69 @@ class PdfPersister:
 
         return all_chunks
 
-    def persist_pdfs(self):
+    
+
+    def persist_pdfs(self, batch_size: int = 1000):
+    # local helper (avoids needing self.batched)
+        def _batched(iterable, n):
+            it = iter(iterable)
+            while True:
+                batch = list(itertools.islice(it, n))
+                if not batch:
+                    break
+                yield batch
+
+        import itertools
+
         bedrock = boto3.client("bedrock-runtime")
         embeddings = BedrockEmbeddings(
             model_id="amazon.titan-embed-text-v2:0",
             client=bedrock
         )
 
-        docs = self.load_and_split_pdfs()
-        texts = [d.page_content for d in docs]
-        metadatas = [d.metadata for d in docs]
-        ids = [m["doc_id"] for m in metadatas]
-
-        embs = embeddings.embed_documents(texts)
-
+        # Open/create the collection first so we can query for existing IDs
         collection = Chroma(
             persist_directory="./chroma_store",
             collection_name="pdf_with_roles",
             embedding_function=embeddings,
         )
+
+        # Prepare all candidate docs/chunks
+        docs = self.load_and_split_pdfs()
+        texts = [d.page_content for d in docs]
+        metadatas = [d.metadata for d in docs]
+        ids = [m["doc_id"] for m in metadatas]
+
+        # Find which IDs already exist (in batches to avoid query limits)
+        existing_ids = set()
+        for id_batch in _batched(ids, batch_size):
+            # NOTE: remove include=["ids"]; Chroma returns found IDs by default
+            got = collection._collection.get(ids=id_batch)
+            existing_ids.update(got.get("ids", []) or [])
+
+        # Keep only new items
+        new_items = [(t, m, i) for t, m, i in zip(texts, metadatas, ids) if i not in existing_ids]
+
+        if not new_items:
+            print("Nothing new to persist. Total docs (unchanged):", collection._collection.count())
+            return
+
+        new_texts, new_metadatas, new_ids = zip(*new_items)
+
+        # Embed only new texts (saving cost/time)
+        new_embs = embeddings.embed_documents(list(new_texts))
+
+        # Upsert only the new items
         collection._collection.upsert(
-            ids=ids,
-            embeddings=embs,
-            documents=texts,
-            metadatas=metadatas,
+            ids=list(new_ids),
+            embeddings=new_embs,
+            documents=list(new_texts),
+            metadatas=list(new_metadatas),
         )
-        print("Total docs:", collection._collection.count())
+
+        print(
+            f"Inserted {len(new_ids)} new chunks. "
+            f"Skipped {len(existing_ids)} existing. "
+            f"Total docs now: {collection._collection.count()}"
+        )
+
