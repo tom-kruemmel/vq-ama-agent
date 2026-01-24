@@ -20,7 +20,7 @@ METRIC_COLUMNS = [
 
 def sanitize_model_id(model_id: str) -> str:
     """
-    Sanitize model_id for use in filenames.
+    Sanitize model_id (or any label) for use in filenames.
     Keeps alphanumerics, '-' and '_', replaces everything else with '_'.
     """
     return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(model_id))
@@ -56,6 +56,16 @@ def read_data(csv_path: Path) -> pd.DataFrame:
         # Backwards compatibility: treat as single model "ALL"
         df["model_id"] = "ALL"
 
+    # New: optional experiment column
+    if "experiment" in df.columns:
+        df["experiment"] = df["experiment"].astype(str)
+    else:
+        df["experiment"] = "ALL"
+
+    # questions_file is metadata only — keep it in the dataframe but never visualize it.
+    if "questions_file" in df.columns:
+        df["questions_file"] = df["questions_file"].astype(str)
+
     # Drop rows with NaNs in key columns (keep contextual metrics optional)
     df = df.dropna(subset=["faithfulness_score", "answer_relevancy_score", "num_context_chunks"])
     return df
@@ -71,25 +81,46 @@ def save_summary(df: pd.DataFrame, outdir: Path, faithfulness_threshold: float) 
     lines = [
         "DeepEval Summary",
         "----------------",
-        f"Rows (all models): {total}",
+        f"Rows (all experiments, all models): {total}",
     ]
 
     # Global metric means
     for col in metrics_present:
         pretty = col.replace("_", " ").capitalize()
         mean_val = df[col].mean()
-        lines.append(f"Mean {pretty} (all models): {mean_val:.3f}")
+        lines.append(f"Mean {pretty} (global): {mean_val:.3f}")
 
-    lines.append(f"Below faithfulness threshold ({faithfulness_threshold:.2f}) (all models): {below}")
+    lines.append(f"Below faithfulness threshold ({faithfulness_threshold:.2f}) (global): {below}")
     lines.extend(
         [
             "",
-            "Per-model statistics",
-            "--------------------",
+            "Per-experiment statistics",
+            "-------------------------",
         ]
     )
 
-    # Per-model stats
+    # Per-experiment stats
+    for experiment, gexp in df.groupby("experiment"):
+        exp_total = len(gexp)
+        exp_below = (gexp["faithfulness_score"] < faithfulness_threshold).sum()
+        lines.append(f"Experiment: {experiment}")
+        lines.append(f"  Rows: {exp_total}")
+        for col in metrics_present:
+            pretty = col.replace("_", " ").capitalize()
+            mean_val = gexp[col].mean()
+            lines.append(f"  Mean {pretty}: {mean_val:.3f}")
+        lines.append(f"  Below threshold ({faithfulness_threshold:.2f}): {exp_below}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "",
+            "Per-model statistics (across all experiments)",
+            "--------------------------------------------",
+        ]
+    )
+
+    # Per-model stats (aggregating across experiments)
     for model_id, g in df.groupby("model_id"):
         m_total = len(g)
         m_below = (g["faithfulness_score"] < faithfulness_threshold).sum()
@@ -130,7 +161,7 @@ def plot_scatter(
 
     base_title = "Faithfulness vs. Answer Relevancy (marker size = num_context_chunks)"
     if label:
-        plt.title(f"{base_title}\nModel: {label}")
+        plt.title(f"{base_title}\n{label}")
     else:
         plt.title(base_title)
 
@@ -161,7 +192,7 @@ def plot_hist(
 
     base_title = f"Distribution of {pretty_name}"
     if label:
-        plt.title(f"{base_title}\nModel: {label}")
+        plt.title(f"{base_title}\n{label}")
     else:
         plt.title(base_title)
 
@@ -198,7 +229,7 @@ def plot_lowest_faithfulness(
 
     base_title = f"Lowest faithfulness questions (top {len(worst)})"
     if label:
-        plt.title(f"{base_title}\nModel: {label}")
+        plt.title(f"{base_title}\n{label}")
     else:
         plt.title(base_title)
 
@@ -217,12 +248,17 @@ def write_below_threshold(
     suffix: str = "",
 ) -> None:
     bad = df[df["faithfulness_score"] < threshold].copy()
+
+    # Exclude questions_file from the output "visualization" CSVs
+    if "questions_file" in bad.columns:
+        bad = bad.drop(columns=["questions_file"])
+
     bad.to_csv(outdir / f"below_threshold{suffix}.csv", index=False)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Visualize DeepEval results CSV (optionally per model).",
+        description="Visualize DeepEval results CSV (optionally per experiment and per model).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("csv", type=Path, help="Path to DeepEval results CSV")
@@ -257,7 +293,7 @@ def main():
 
     metrics_present = [col for col in METRIC_COLUMNS if col in df.columns]
 
-    # Global summary & plots (all models together)
+    # Global summary & plots (all experiments, all models together)
     save_summary(df, args.outdir, args.faithfulness_threshold)
     plot_scatter(df, args.outdir)  # global, no suffix
 
@@ -268,15 +304,30 @@ def main():
     plot_lowest_faithfulness(df, args.outdir, args.top_n)
     write_below_threshold(df, args.outdir, args.faithfulness_threshold)
 
-    # Per-model plots & CSVs
-    for model_id, g in df.groupby("model_id"):
-        safe = sanitize_model_id(model_id)
-        suffix = f"_{safe}"
-        label = model_id
+    # Per-experiment plots & CSVs
+    for experiment, gexp in df.groupby("experiment"):
+        exp_safe = sanitize_model_id(experiment)
+        exp_suffix = f"_{exp_safe}"
+        exp_label = f"Experiment: {experiment}"
+
+        plot_scatter(gexp, args.outdir, label=exp_label, suffix=exp_suffix)
+
+        for col in metrics_present:
+            plot_hist(gexp, col, args.outdir, label=exp_label, suffix=exp_suffix)
+
+        plot_lowest_faithfulness(gexp, args.outdir, args.top_n, label=exp_label, suffix=exp_suffix)
+        write_below_threshold(gexp, args.outdir, args.faithfulness_threshold, suffix=exp_suffix)
+
+    # Per-(experiment, model) plots & CSVs
+    for (experiment, model_id), g in df.groupby(["experiment", "model_id"]):
+        exp_safe = sanitize_model_id(experiment)
+        model_safe = sanitize_model_id(model_id)
+        suffix = f"_{exp_safe}_{model_safe}"
+        label = f"Model: {model_id} | Experiment: {experiment}"
 
         plot_scatter(g, args.outdir, label=label, suffix=suffix)
 
-        # Histograms for all present metrics per model
+        # Histograms for all present metrics per (experiment, model)
         for col in metrics_present:
             plot_hist(g, col, args.outdir, label=label, suffix=suffix)
 
@@ -284,7 +335,7 @@ def main():
         write_below_threshold(g, args.outdir, args.faithfulness_threshold, suffix=suffix)
 
     print(f"\nWrote figures and files to: {args.outdir.resolve()}")
-    print("Global files (all models combined):")
+    print("Global files (all experiments, all models combined):")
 
     # Always list the core files if they exist
     for name in [
@@ -302,8 +353,11 @@ def main():
         print(f" - {hist_path.name}")
 
     print(
-        "\nPer-model files have filenames suffixed with _<sanitized_model_id>, "
-        "e.g. scatter_faithfulness_vs_relevancy_qwen_qwen3_235b_a22b_2507_v1_0.png"
+        "\nPer-experiment files have filenames suffixed with _<sanitized_experiment>, "
+        "and per-(experiment, model) files with _<sanitized_experiment>_<sanitized_model_id>."
+    )
+    print(
+        "Example: scatter_faithfulness_vs_relevancy_engineer_default_qwen_qwen3_235b_a22b_2507_v1_0.png"
     )
 
 

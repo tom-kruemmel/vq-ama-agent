@@ -7,6 +7,7 @@ from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .pdf_persister import PdfPersister
 from .role_assigner_validator import RoleAssignerValidator
+from .confidence_checker import ConfidenceChecker
 
 CHAT_HTML = """
 <!doctype html>
@@ -131,11 +132,26 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str]) -> F
         data = request.get_json()
         question = data.get('question', '')
         # RAG workflow
+        in_domain, dq_score, dq_rationale = agent.judge_question_domain(
+            question,
+            min_score=0.60,  # tune as you like
+        )
+        print(f"Domain judge: {in_domain} (score: {dq_score:.3f}) -- {dq_rationale}")
+        if not in_domain:
+            return jsonify({
+                'answer': "I can help with questions about virtualQ and its technology stack. Please ask a question related to that.",
+          })
         queries = agent.generate_queries(question)
         retriever = Embeddings()
         retrieved_docs = retriever.retrieve_documents(queries, user_roles, headings)
         fusion = RankFusion()
-        fused_docs = fusion.reciprocal_rank_fusion(retrieved_docs)
+        fused_docs_with_scores = fusion.reciprocal_rank_fusion(retrieved_docs)
+        fused_docs = [doc for doc, _ in fused_docs_with_scores]
+        checker = ConfidenceChecker(min_score=0.35, top_k=3)
+        # if not checker.is_confident(fused_docs_with_scores):
+        #     return jsonify({'answer': "I’m sorry, I can’t answer that question."})
+
+        # Only if confident, generate an answer
         answer = agent.generate_answer(question, fused_docs)
         return jsonify({'answer': answer})
 

@@ -72,7 +72,7 @@ class PdfPersister:
         all_chunks = []
 
         merged_docs = self.merge_docs(raw_docs)
-    
+
         for doc in merged_docs:
             fname = os.path.basename(doc.metadata["source"])
             roles = sorted(self.role_map.get(fname, []))
@@ -90,19 +90,11 @@ class PdfPersister:
                     all_chunks.append(chunk)
                 continue
 
-            # split into paragraphs and track current heading
             paragraphs = doc.page_content.split("\n\n")
             current_heading = self.default_heading
 
-            for para in paragraphs:
-                text = para.strip()
-                if not text:
-                    continue
-
-                # heading marker
-                current_heading = self.check_for_heading(text, headings, current_heading)
-
-                # chunk content
+            def _emit_text_as_chunks(text, heading):
+                """Split large text if needed, then emit one chunk per role with given heading."""
                 if len(text) > self.chunk_size:
                     tmp = copy.deepcopy(doc)
                     tmp.page_content = text
@@ -111,22 +103,65 @@ class PdfPersister:
                     subchunks = [copy.deepcopy(doc)]
                     subchunks[0].page_content = text
 
-                # save one chunk per role
                 for chunk in subchunks:
                     for role in roles:
                         c = copy.deepcopy(chunk)
                         c.metadata.update({
                             "allowed_roles": role,
-                            "heading": current_heading,
+                            "heading": heading,
                             "doc_id": self.generate_doc_id(c.page_content, role)
                         })
-                        # if current_heading != self.default_heading:
-                        #     print(self.generate_doc_id(c.page_content, role))
-                        #     breakpoint()
                         all_chunks.append(c)
 
-        return all_chunks
+            def _find_next_heading(text):
+                """Return (idx, heading) for earliest heading occurrence in text, else (None, None)."""
+                if not headings:
+                    return None, None
+                best = None
+                best_h = None
+                for h in headings:
+                    i = text.find(h)
+                    if i != -1 and (best is None or i < best):
+                        best = i
+                        best_h = h
+                return best, best_h
 
+            for para in paragraphs:
+                text = para.strip()
+                if not text:
+                    continue
+
+                # Split within paragraph if a heading appears mid-paragraph.
+                # We walk left-to-right so multiple headings in one paragraph are handled.
+                remaining = text
+                while remaining:
+                    idx, h = _find_next_heading(remaining)
+
+                    if idx is None:
+                        # no heading at all in the remaining text
+                        _emit_text_as_chunks(remaining, current_heading)
+                        break
+
+                    if idx == 0:
+                        # heading at start: update heading, then emit this part (which starts with heading)
+                        current_heading = self.check_for_heading(remaining, headings, current_heading)
+                        _emit_text_as_chunks(remaining, current_heading)
+                        break
+
+                    # heading is mid-chunk => split into two chunks
+                    before = remaining[:idx].strip()
+                    after = remaining[idx:].strip()
+
+                    if before:
+                        _emit_text_as_chunks(before, current_heading)
+
+                    # update heading for the part starting at the heading
+                    current_heading = self.check_for_heading(after, headings, current_heading)
+
+                    # continue scanning the remainder from the heading onward
+                    remaining = after
+
+        return all_chunks
     
 
     def persist_pdfs(self, batch_size: int = 1000):

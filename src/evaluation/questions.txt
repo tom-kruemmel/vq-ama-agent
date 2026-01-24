@@ -5,10 +5,10 @@ What are internal and external audits and how do they differ?
 What are acd connectors?
 How is reliability and compliance achieved?
 What ensures security and performance?
-How do we achieve cost efficiency and extensibility?
+How do we achieve cost efficiency?
+How do we achieve extensibility?
 What is the corporate data flow?
 How is Bigquery used in our system?
-What is Bigquery?
 How do we ensure that no PII Data can be accessed by someone who is not supposed to be able to do so?
 how do we know which code is tested?
 What is the organizational structure of vq?

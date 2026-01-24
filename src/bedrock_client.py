@@ -10,6 +10,11 @@ from langchain.chains import RetrievalQA
 from langchain_aws import ChatBedrock
 from langchain_aws import BedrockEmbeddings
 
+# 🔽 minimal additions for throttling handling
+import time, random
+import botocore
+from botocore.config import Config
+# 🔼
 
 class BedrockClient:
     """
@@ -30,7 +35,16 @@ class BedrockClient:
             region_name=region_name,
         )
         # Bedrock uses the 'bedrock-runtime' client for inference
-        self.client = session.client('bedrock-runtime')
+        # 🔽 minimal change: add retry-friendly client config
+        self.client = session.client(
+            'bedrock-runtime',
+            config=Config(
+                retries={"max_attempts": 10, "mode": "standard"},
+                read_timeout=60,
+                connect_timeout=10,
+            )
+        )
+        # 🔼
 
     
     def get_account_id(self) -> str:
@@ -102,29 +116,6 @@ class BedrockClient:
         temperature: float = 0.7,
         top_p: float = 1.0,
     ) -> Dict[str, Any]:
-        # payload = {
-        #     'prompt': prompt,
-        #     'max_tokens_to_sample': max_tokens,
-        #     'temperature': temperature,
-        #     'top_p': top_p,
-        # }
-
-        #bedrock_client = boto3.client(service_name='bedrock-runtime')
-
-        # chat_model = BedrockChat(
-        #     model_id=model_id,
-        #     client=bedrock_client,
-        #     model_kwargs={
-        #         "max_tokens": max_tokens,
-        #         "temperature": temperature,
-        #         "top_k": 250,
-        #         "top_p": top_p,
-        #         "stop_sequences": ["\n\n\n"],
-        #     }
-        # )
-        # response = chat_model.invoke(prompt)
-        # return response.content.strip().split("\n")
-
         if isinstance(prompt, list):
             try:
                 input_text = "\n".join([msg.content for msg in prompt])
@@ -137,46 +128,48 @@ class BedrockClient:
         else:
             raise TypeError(f"Unsupported prompt type: {type(prompt)}")
 
-        # payload = {
-        #     "inputText": input_text,
-        #     "textGenerationConfig": {
-        #         "maxTokenCount": 512,
-        #         "temperature": 0.7,
-        #         "topP": 1.0
-        #     }
-        # }
-
         payload_messages = [
             {"role": "system", "content": [{"text": "You are a helpful assistant."}]},
             {"role": "user",   "content": [{"text": input_text}]}
         ]
 
-
         payload = {
             "messages": payload_messages,
             "inferenceConfig": {
-                "maxTokens": 512,
-                "temperature": 0.7,
-                "topP": 1.0
+                "maxTokens": max_tokens,
+                "temperature": temperature,
+                "topP": top_p
             }
         }
-        # resp = self.client.converse(
-        #     modelId=model_id, 
-        #     contentType='application/json',
-        #     accept='application/json',
-        #     body=json.dumps(payload),
-        # )
 
-        resp = self.client.converse(
-            modelId=model_id,
-            system=[{"text": "You are a helpful assistant."}],
-            messages=[
-                {"role": "user", "content": [{"text": input_text}]}
-            ],
-            inferenceConfig=payload ["inferenceConfig"]
-        )
+        # 🔽 minimal change: throttle-safe retry wrapper around converse
+        inference_cfg = payload["inferenceConfig"]
+        max_retries = 8
+        base = 0.5  # seconds
 
-        return resp
-
-        # body = resp['body'].read()
-        # return json.loads(body)
+        for attempt in range(max_retries):
+            try:
+                resp = self.client.converse(
+                    modelId=model_id,
+                    system=[{"text": "You are a helpful assistant."}],
+                    messages=[
+                        {"role": "user", "content": [{"text": input_text}]}
+                    ],
+                    inferenceConfig=inference_cfg
+                )
+                return resp
+            except botocore.exceptions.ClientError as e:
+                code = e.response.get("Error", {}).get("Code", "")
+                if code in (
+                    "ThrottlingException",
+                    "TooManyRequestsException",
+                    "RequestLimitExceeded",
+                    "ServiceQuotaExceededException",
+                ):
+                    # exponential backoff + jitter
+                    sleep = min(8.0, base * (2 ** attempt)) + random.uniform(0, 0.25)
+                    time.sleep(sleep)
+                    continue
+                # non-throttling errors bubble up unchanged
+                raise
+        # 🔼

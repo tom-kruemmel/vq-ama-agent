@@ -17,4 +17,4 @@ class RankFusion:
             scores[doc.page_content] += 1 / (rank + 1 + k)
         # Sort documents by score
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return [doc for doc, _ in sorted_docs]
+        return sorted_docs

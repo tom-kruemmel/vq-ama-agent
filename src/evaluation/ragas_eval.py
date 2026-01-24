@@ -492,7 +492,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Evaluate RAG with DeepEval (reference-free metrics)"
     )
-    parser.add_argument("--questions", required=True)  # now path to questions.csv
+    # NOTE: questions file is now defined per experiment (see `experiments` below)
     parser.add_argument("--csv", default="deepeval_results.csv")
     parser.add_argument("--json", default="pipeline_outputs.json")
     parser.add_argument(
@@ -509,8 +509,29 @@ def main():
         "Starting DeepEval evaluation (reference-free: faithfulness + answer relevancy + contextual metrics)"
     )
 
-    user_roles = ["engineer"]
-    headings = ["default", "Confidential"]
+    # --------- NEW: define experiments (each with its own questions file) ----------
+    experiments = [
+        {
+            "name": "engineer_default",
+            "user_roles": ["engineer"],
+            "headings": ["default"],
+            "questions_file": "src/evaluation/questions_short.csv",
+        },
+        {
+            "name": "engineer_confidential",
+            "user_roles": ["engineer"],
+            "headings": ["default","Confidential"],
+            "questions_file": "src/evaluation/questions_short.csv",
+        },
+        # Add more experiments here:
+        # {
+        #     "name": "manager_default_confidential",
+        #     "user_roles": ["manager"],
+        #     "headings": ["default", "Confidential"],
+        #     "questions_file": "questions_manager.csv",
+        # },
+    ]
+    # --------------------------------------------------------------------------    
 
     region_name = os.getenv("AWS_DEFAULT_REGION", "eu-central-1")
     session = boto3.Session(
@@ -546,32 +567,6 @@ def main():
     retriever = Embeddings()
     fusion = RankFusion()
 
-    # ------------- NEW: read questions.csv -------------
-    dataset = []
-    with open(args.questions, "r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            # Normalize column names in case of spaces / case differences
-            norm_row = {
-                (k or "").strip().lower(): (v or "")
-                for k, v in row.items()
-            }
-            q = norm_row.get("questions", "").strip()
-            expected_ans = norm_row.get("answer", "").strip()
-            if not q:
-                continue
-            dataset.append(
-                {
-                    "question": q,
-                    "expected_answer": expected_ans,
-                }
-            )
-
-    if not dataset:
-        logger.warning("No questions found in the provided CSV file. Exiting.")
-        return
-    # ---------------------------------------------------
-
     # Use a single judge model for all systems-under-test
     judge_model_id = model_ids[0]
     judge_model = LenientLiteLLMModel(
@@ -583,7 +578,6 @@ def main():
         response_format={"type": "json_object"},
     )
 
-    # These Metric instances are used only by the `evaluate` call.
     faithfulness = FaithfulnessMetric(model=judge_model, threshold=0.0)
     answer_rel = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
     contextual_rel = ContextualRelevancyMetric(model=judge_model, threshold=0.0)
@@ -601,177 +595,247 @@ def main():
     all_outputs = []  # for JSON
     all_rows = []     # for CSV
 
-    # Run evaluation for each model separately
-    for gen_model_id in model_ids:
-        logger.info(f"Evaluating generation model: {gen_model_id}")
+    # Helper to load questions for a given experiment
+    def load_dataset(path: str):
+        dataset = []
+        with open(path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                norm_row = {
+                    (k or "").strip().lower(): (v or "")
+                    for k, v in row.items()
+                }
+                q = norm_row.get("questions", "").strip()
+                expected_ans = norm_row.get("answer", "").strip()
+                if not q:
+                    continue
+                dataset.append(
+                    {
+                        "question": q,
+                        "expected_answer": expected_ans,
+                    }
+                )
+        return dataset
 
-        agent = RAGAgent(my_bedrock_client, gen_model_id)
-        app = RAGPipelineApp(agent=agent, retriever=retriever, fusion=fusion)
+    # ----------------- loop over experiments -----------------
+    for experiment in experiments:
+        exp_name = experiment["name"]
+        user_roles = experiment["user_roles"]
+        headings = experiment["headings"]
+        questions_file = experiment["questions_file"]
 
-        test_cases: List[LLMTestCase] = []
-        model_outputs = []
+        logger.info(
+            f"Running experiment '{exp_name}' with roles={user_roles} "
+            f"headings={headings} questions_file={questions_file}"
+        )
 
-        # iterate over questions + expected answers from CSV
-        for item in dataset:
-            q = item["question"]
-            expected_ans = item["expected_answer"]
+        # Load questions for this specific experiment
+        try:
+            dataset = load_dataset(questions_file)
+        except FileNotFoundError:
+            logger.error(
+                f"Questions file not found for experiment '{exp_name}': {questions_file}. Skipping."
+            )
+            continue
 
-            print(q)
-            answer = app.query(q, user_roles, headings)
-            contexts = app.last_contexts or []
+        if not dataset:
+            logger.warning(
+                f"No questions found in {questions_file} for experiment '{exp_name}'. Skipping."
+            )
+            continue
 
+        # Run evaluation for each model separately, per experiment
+        for gen_model_id in model_ids:
             logger.info(
-                f"[CASE] model={gen_model_id} "
-                f"question={q[:80]!r} "
-                f"response_len={len(answer) if answer else 0} "
-                f"context_chunks={len(contexts)}"
+                f"Evaluating generation model: {gen_model_id} "
+                f"(experiment={exp_name})"
             )
 
-            model_outputs.append({
-                "model_id": gen_model_id,
-                "user_input": q,
-                "retrieved_contexts": contexts,
-                "response": answer,
-                "expected_answer": expected_ans,
-            })
+            agent = RAGAgent(my_bedrock_client, gen_model_id)
+            app = RAGPipelineApp(agent=agent, retriever=retriever, fusion=fusion)
 
-            test_cases.append(
-                LLMTestCase(
-                    input=q,
-                    actual_output=answer,
-                    expected_output=expected_ans or None,  # take from CSV "answer" column
-                    retrieval_context=contexts,
-                )
-            )
-            time.sleep(0.05)
+            test_cases: List[LLMTestCase] = []
+            model_outputs = []
 
-        all_outputs.extend(model_outputs)
+            # iterate over questions + expected answers from experiment's CSV
+            for item in dataset:
+                q = item["question"]
+                expected_ans = item["expected_answer"]
 
-        # Run eval for this model (DeepEval will attach scores to test_cases)
-        evaluate(test_cases=test_cases, metrics=metrics)
+                print(q)
+                answer = app.query(q, user_roles, headings)
+                contexts = app.last_contexts or []
 
-        # Persist per-question scores (per-model, per-question)
-        for case in test_cases:
-            logger.info(
-                f"[METRICS] model={gen_model_id} question={case.input[:80]!r} "
-                f"chunks={len(case.retrieval_context or [])}"
-            )
-
-            # Default None in case of errors
-            faithfulness_score = None
-            answer_rel_score = None
-            contextual_rel_score = None
-            contextual_recall_score = None
-            contextual_precision_score = None
-
-            # New instance per case to avoid any weird state
-            f = FaithfulnessMetric(model=judge_model, threshold=0.0)
-            ar = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
-            cr = ContextualRelevancyMetric(model=judge_model, threshold=0.0)
-            c_recall = ContextualRecallMetric(model=judge_model, threshold=0.0)
-            c_prec = ContextualPrecisionMetric(model=judge_model, threshold=0.0)
-
-            # Faithfulness
-            try:
-                f.measure(case)
-                faithfulness_score = getattr(f, "score", None)
-                logger.debug(
-                    f"[METRIC OK] Faithfulness "
-                    f"model={gen_model_id} question={case.input[:80]!r} "
-                    f"score={faithfulness_score}"
-                )
-            except Exception as e:
-                logger.exception(
-                    f"[METRIC ERROR] Faithfulness failed for "
-                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
+                logger.info(
+                    f"[CASE] experiment={exp_name} model={gen_model_id} "
+                    f"question={q[:80]!r} "
+                    f"response_len={len(answer) if answer else 0} "
+                    f"context_chunks={len(contexts)}"
                 )
 
-            time.sleep(0.15)
+                model_outputs.append({
+                    "experiment": exp_name,
+                    "questions_file": questions_file,
+                    "model_id": gen_model_id,
+                    "user_roles": user_roles,
+                    "headings": headings,
+                    "user_input": q,
+                    "retrieved_contexts": contexts,
+                    "response": answer,
+                    "expected_answer": expected_ans,
+                })
 
-            # Answer Relevancy
-            try:
-                ar.measure(case)
-                answer_rel_score = getattr(ar, "score", None)
-                logger.debug(
-                    f"[METRIC OK] AnswerRelevancy "
-                    f"model={gen_model_id} question={case.input[:80]!r} "
-                    f"score={answer_rel_score}"
+                test_cases.append(
+                    LLMTestCase(
+                        input=q,
+                        actual_output=answer,
+                        expected_output=expected_ans or None,
+                        retrieval_context=contexts,
+                    )
                 )
-            except Exception as e:
-                logger.exception(
-                    f"[METRIC ERROR] AnswerRelevancy failed for "
-                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
-                )
+                time.sleep(0.05)
 
-            time.sleep(0.25)
+            all_outputs.extend(model_outputs)
 
-            # Contextual Relevancy
-            try:
-                cr.measure(case)
-                contextual_rel_score = getattr(cr, "score", None)
-                logger.debug(
-                    f"[METRIC OK] ContextualRelevancy "
-                    f"model={gen_model_id} question={case.input[:80]!r} "
-                    f"score={contextual_rel_score}"
-                )
-            except Exception as e:
-                logger.exception(
-                    f"[METRIC_ERROR] ContextualRelevancy failed for "
-                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
-                )
+            # Run eval for this model (DeepEval will attach scores to test_cases)
+            evaluate(test_cases=test_cases, metrics=metrics)
 
-            time.sleep(0.25)
-
-            # Contextual Recall
-            try:
-                c_recall.measure(case)
-                contextual_recall_score = getattr(c_recall, "score", None)
-                logger.debug(
-                    f"[METRIC OK] ContextualRecall "
-                    f"model={gen_model_id} question={case.input[:80]!r} "
-                    f"score={contextual_recall_score}"
-                )
-            except Exception as e:
-                logger.exception(
-                    f"[METRIC ERROR] ContextualRecall failed for "
-                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
+            # Persist per-question scores (per-model, per-question, per-experiment)
+            for case in test_cases:
+                logger.info(
+                    f"[METRICS] experiment={exp_name} model={gen_model_id} "
+                    f"question={case.input[:80]!r} "
+                    f"chunks={len(case.retrieval_context or [])}"
                 )
 
-            time.sleep(0.25)
+                faithfulness_score = None
+                answer_rel_score = None
+                contextual_rel_score = None
+                contextual_recall_score = None
+                contextual_precision_score = None
 
-            # Contextual Precision
-            try:
-                c_prec.measure(case)
-                contextual_precision_score = getattr(c_prec, "score", None)
-                logger.debug(
-                    f"[METRIC OK] ContextualPrecision "
-                    f"model={gen_model_id} question={case.input[:80]!r} "
-                    f"score={contextual_precision_score}"
-                )
-            except Exception as e:
-                logger.exception(
-                    f"[METRIC_ERROR] ContextualPrecision failed for "
-                    f"model={gen_model_id} question={case.input[:80]!r}: {e}"
-                )
+                f = FaithfulnessMetric(model=judge_model, threshold=0.0)
+                ar = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
+                cr = ContextualRelevancyMetric(model=judge_model, threshold=0.0)
+                c_recall = ContextualRecallMetric(model=judge_model, threshold=0.0)
+                c_prec = ContextualPrecisionMetric(model=judge_model, threshold=0.0)
 
-            time.sleep(0.25)
+                # Faithfulness
+                try:
+                    f.measure(case)
+                    faithfulness_score = getattr(f, "score", None)
+                    logger.debug(
+                        f"[METRIC OK] Faithfulness "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r} "
+                        f"score={faithfulness_score}"
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"[METRIC ERROR] Faithfulness failed for "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r}: {e}"
+                    )
 
-            all_rows.append({
-                "model_id": gen_model_id,
-                "question": case.input,
-                "faithfulness_score": faithfulness_score,
-                "answer_relevancy_score": answer_rel_score,
-                "contextual_relevancy_score": contextual_rel_score,
-                "contextual_recall_score": contextual_recall_score,
-                "contextual_precision_score": contextual_precision_score,
-                "num_context_chunks": len(case.retrieval_context or []),
-            })
+                time.sleep(0.15)
 
-    # Write combined CSV for all models
+                # Answer Relevancy
+                try:
+                    ar.measure(case)
+                    answer_rel_score = getattr(ar, "score", None)
+                    logger.debug(
+                        f"[METRIC OK] AnswerRelevancy "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r} "
+                        f"score={answer_rel_score}"
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"[METRIC ERROR] AnswerRelevancy failed for "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r}: {e}"
+                    )
+
+                time.sleep(0.25)
+
+                # Contextual Relevancy
+                try:
+                    cr.measure(case)
+                    contextual_rel_score = getattr(cr, "score", None)
+                    logger.debug(
+                        f"[METRIC OK] ContextualRelevancy "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r} "
+                        f"score={contextual_rel_score}"
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"[METRIC_ERROR] ContextualRelevancy failed for "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r}: {e}"
+                    )
+
+                time.sleep(0.25)
+
+                # Contextual Recall
+                try:
+                    c_recall.measure(case)
+                    contextual_recall_score = getattr(c_recall, "score", None)
+                    logger.debug(
+                        f"[METRIC OK] ContextualRecall "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r} "
+                        f"score={contextual_recall_score}"
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"[METRIC ERROR] ContextualRecall failed for "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r}: {e}"
+                    )
+
+                time.sleep(0.25)
+
+                # Contextual Precision
+                try:
+                    c_prec.measure(case)
+                    contextual_precision_score = getattr(c_prec, "score", None)
+                    logger.debug(
+                        f"[METRIC OK] ContextualPrecision "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r} "
+                        f"score={contextual_precision_score}"
+                    )
+                except Exception as e:
+                    logger.exception(
+                        f"[METRIC_ERROR] ContextualPrecision failed for "
+                        f"experiment={exp_name} model={gen_model_id} "
+                        f"question={case.input[:80]!r}: {e}"
+                    )
+
+                time.sleep(0.25)
+
+                all_rows.append({
+                    "experiment": exp_name,
+                    "questions_file": questions_file,
+                    "model_id": gen_model_id,
+                    "question": case.input,
+                    "faithfulness_score": faithfulness_score,
+                    "answer_relevancy_score": answer_rel_score,
+                    "contextual_relevancy_score": contextual_rel_score,
+                    "contextual_recall_score": contextual_recall_score,
+                    "contextual_precision_score": contextual_precision_score,
+                    "num_context_chunks": len(case.retrieval_context or []),
+                })
+    # ----------------- end experiments loop -----------------
+
+    # Write combined CSV for all models & experiments
     with open(args.csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=[
+                "experiment",
+                "questions_file",
                 "model_id",
                 "question",
                 "faithfulness_score",
@@ -786,14 +850,9 @@ def main():
         writer.writerows(all_rows)
     logger.info(f"Saved DeepEval metric results to {args.csv}")
 
-    # Write combined JSON for all models
+    # Write combined JSON for all models & experiments
     with open(args.json, "w", encoding="utf-8") as f:
         json.dump(all_outputs, f, ensure_ascii=False, indent=2)
     logger.info(f"Saved pipeline outputs to {args.json}")
 
 
-if __name__ == "__main__":
-    # Optional noise control:
-    # os.environ["CHROMA_TELEMETRY_DISABLED"] = "TRUE"
-    # os.environ["LITELLM_LOG"] = "ERROR"
-    main()
