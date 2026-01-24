@@ -5,7 +5,7 @@ from .bedrock_client import BedrockClient
 from .retriever import VectorRetriever
 from langchain.prompts import ChatPromptTemplate
 import json
-# from .prompt_templates import RAG_PROMPT
+from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
 
 class RAGAgent:
     """
@@ -32,23 +32,13 @@ class RAGAgent:
         self.k = k
 
     def generate_queries(self, question) -> str:
-        prompt = ChatPromptTemplate.from_template("""
-        You are an AI assistant. Generate five different rewrites of the user's question to help retrieve relevant documents from a vector database. Separate each rewritten question with a newline. Only use newlines after the first four questions. Just create the questions without any additional text.
-
-        User's question: {question}
-        """)
+        prompt = ChatPromptTemplate.from_template(GENERATE_QUERIES_PROMPT)
         return self.answer_question(prompt.format_messages(question=question))
 
     def generate_answer(self, question, context_docs):
         context_texts = [doc[0] if isinstance(doc, tuple) else doc for doc in context_docs[:5]]
         context = "\n\n".join(context_texts)  # Limit context to top 5 documents
-        answer_prompt = f"""
-            Context:
-            {context}
-
-            Question: {question}
-
-            Answer:"""
+        answer_prompt = GENERATE_ANSWER_PROMPT.format(context=context, question=question)
         return self.answer_question(answer_prompt)
 
     def answer_from_db(self, question: str) -> str:
@@ -97,22 +87,7 @@ class RAGAgent:
             "It excludes unrelated general knowledge and questions about other companies."
         )
 
-        prompt = f"""
-        You are a strict domain gatekeeper. Decide whether the USER QUESTION is IN-DOMAIN for the DOMAIN.
-
-        Return ONLY a compact JSON object without any markdown or such wrapping it, starting with curly braces, with keys:
-        - "in_domain": true or false
-        - "score": a number from 0.0 to 1.0 reflecting confidence that it is in-domain
-        - "rationale": a short one-sentence explanation
-
-        DOMAIN:
-        {domain_desc}
-
-        USER QUESTION:
-        {question}
-
-        JSON:
-        """
+        prompt = JUDGE_QUESTION_DOMAIN_PROMPT.format(domain_desc=domain_desc, question=question)
 
         response = self.bedrock.invoke_model(
             model_id=self.model_id,
