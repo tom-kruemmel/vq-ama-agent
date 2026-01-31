@@ -23,6 +23,30 @@ from ..bedrock_client import BedrockClient
 from ..agent import RAGAgent
 from ..embeddings import Embeddings
 from ..rank_fusion import RankFusion
+from ..prompt_templates import (
+    # Query prompts
+    GENERATE_QUERIES_PROMPT,
+    GENERATE_QUERIES_DIVERSE,
+    GENERATE_QUERIES_HYDE,
+    GENERATE_QUERIES_DECOMPOSE,
+    # Answer prompts
+    GENERATE_ANSWER_PROMPT,
+    GENERATE_ANSWER_QA_TERSE,
+    GENERATE_ANSWER_CONVERSATIONAL,
+    GENERATE_ANSWER_INSTRUCTION_BLOCK,
+    GENERATE_ANSWER_STRICT_GROUNDING,
+    GENERATE_ANSWER_SOFT_GROUNDING,
+    GENERATE_ANSWER_UNCERTAINTY_AWARE,
+    GENERATE_ANSWER_CONCISE,
+    GENERATE_ANSWER_LIGHT_REASONING,
+    GENERATE_ANSWER_FULL_COT,
+    GENERATE_ANSWER_BULLET_SUMMARY,
+    # Judge prompts
+    JUDGE_QUESTION_DOMAIN_PROMPT,
+    JUDGE_DOMAIN_LENIENT,
+    JUDGE_DOMAIN_TWO_STAGE,
+    JUDGE_DOMAIN_CATEGORY,
+)
 
 # === DeepEval imports ===
 # pip install deepeval litellm
@@ -509,28 +533,70 @@ def main():
         "Starting DeepEval evaluation (reference-free: faithfulness + answer relevancy + contextual metrics)"
     )
 
-    # --------- NEW: define experiments (each with its own questions file) ----------
-    experiments = [
+    # --------- Define prompt variants for combinatorial experiments ----------
+    QUERY_PROMPTS = {
+        "default": GENERATE_QUERIES_PROMPT,
+        "diverse": GENERATE_QUERIES_DIVERSE,
+        "hyde": GENERATE_QUERIES_HYDE,
+        "decompose": GENERATE_QUERIES_DECOMPOSE,
+    }
+
+    ANSWER_PROMPTS = {
+        "default": GENERATE_ANSWER_PROMPT,
+        "qa_terse": GENERATE_ANSWER_QA_TERSE,
+        "conversational": GENERATE_ANSWER_CONVERSATIONAL,
+        "instruction_block": GENERATE_ANSWER_INSTRUCTION_BLOCK,
+        "strict_grounding": GENERATE_ANSWER_STRICT_GROUNDING,
+        "soft_grounding": GENERATE_ANSWER_SOFT_GROUNDING,
+        "uncertainty_aware": GENERATE_ANSWER_UNCERTAINTY_AWARE,
+        "concise": GENERATE_ANSWER_CONCISE,
+        "light_reasoning": GENERATE_ANSWER_LIGHT_REASONING,
+        "full_cot": GENERATE_ANSWER_FULL_COT,
+        "bullet_summary": GENERATE_ANSWER_BULLET_SUMMARY,
+    }
+
+    JUDGE_PROMPTS = {
+        "default": JUDGE_QUESTION_DOMAIN_PROMPT,
+        "lenient": JUDGE_DOMAIN_LENIENT,
+        "two_stage": JUDGE_DOMAIN_TWO_STAGE,
+        "category": JUDGE_DOMAIN_CATEGORY,
+    }
+
+    # Base configurations for user roles/headings
+    BASE_CONFIGS = [
         {
-            "name": "engineer_default",
             "user_roles": ["engineer"],
             "headings": ["default"],
             "questions_file": "src/evaluation/questions_short.csv",
         },
         {
-            "name": "engineer_confidential",
             "user_roles": ["engineer"],
-            "headings": ["default","Confidential"],
+            "headings": ["default", "Confidential"],
             "questions_file": "src/evaluation/questions_short.csv",
         },
-        # Add more experiments here:
-        # {
-        #     "name": "manager_default_confidential",
-        #     "user_roles": ["manager"],
-        #     "headings": ["default", "Confidential"],
-        #     "questions_file": "questions_manager.csv",
-        # },
     ]
+
+    # Generate all combinations of prompts for each base config
+    experiments = []
+    for base_config in BASE_CONFIGS:
+        roles_str = "_".join(base_config["user_roles"])
+        headings_str = "_".join(h.lower() for h in base_config["headings"])
+        
+        for query_name, query_prompt in QUERY_PROMPTS.items():
+            for answer_name, answer_prompt in ANSWER_PROMPTS.items():
+                for judge_name, judge_prompt in JUDGE_PROMPTS.items():
+                    exp_name = f"{roles_str}_{headings_str}_q_{query_name}_a_{answer_name}_j_{judge_name}"
+                    experiments.append({
+                        "name": exp_name,
+                        "user_roles": base_config["user_roles"],
+                        "headings": base_config["headings"],
+                        "questions_file": base_config["questions_file"],
+                        "generate_queries_prompt": query_prompt,
+                        "generate_answer_prompt": answer_prompt,
+                        "judge_question_domain_prompt": judge_prompt,
+                    })
+
+    logger.info(f"Generated {len(experiments)} experiment combinations")
     # --------------------------------------------------------------------------    
 
     region_name = os.getenv("AWS_DEFAULT_REGION", "eu-central-1")
@@ -623,10 +689,37 @@ def main():
         user_roles = experiment["user_roles"]
         headings = experiment["headings"]
         questions_file = experiment["questions_file"]
+        
+        # Extract prompt names for tracking (parse from experiment name or use dedicated fields)
+        # Find which prompt variant is being used by matching against the dictionaries
+        query_prompt_name = next(
+            (k for k, v in QUERY_PROMPTS.items() 
+             if v == experiment.get("generate_queries_prompt")), "unknown"
+        )
+        answer_prompt_name = next(
+            (k for k, v in ANSWER_PROMPTS.items() 
+             if v == experiment.get("generate_answer_prompt")), "unknown"
+        )
+        judge_prompt_name = next(
+            (k for k, v in JUDGE_PROMPTS.items() 
+             if v == experiment.get("judge_question_domain_prompt")), "unknown"
+        )
+        
+        # Extract prompts from experiment config (use defaults if not specified)
+        exp_generate_queries_prompt = experiment.get(
+            "generate_queries_prompt", GENERATE_QUERIES_PROMPT
+        )
+        exp_generate_answer_prompt = experiment.get(
+            "generate_answer_prompt", GENERATE_ANSWER_PROMPT
+        )
+        exp_judge_question_domain_prompt = experiment.get(
+            "judge_question_domain_prompt", JUDGE_QUESTION_DOMAIN_PROMPT
+        )
 
         logger.info(
             f"Running experiment '{exp_name}' with roles={user_roles} "
-            f"headings={headings} questions_file={questions_file}"
+            f"headings={headings} questions_file={questions_file} "
+            f"query_prompt={query_prompt_name} answer_prompt={answer_prompt_name} judge_prompt={judge_prompt_name}"
         )
 
         # Load questions for this specific experiment
@@ -651,7 +744,13 @@ def main():
                 f"(experiment={exp_name})"
             )
 
-            agent = RAGAgent(my_bedrock_client, gen_model_id)
+            agent = RAGAgent(
+                my_bedrock_client,
+                gen_model_id,
+                generate_queries_prompt=exp_generate_queries_prompt,
+                generate_answer_prompt=exp_generate_answer_prompt,
+                judge_question_domain_prompt=exp_judge_question_domain_prompt,
+            )
             app = RAGPipelineApp(agent=agent, retriever=retriever, fusion=fusion)
 
             test_cases: List[LLMTestCase] = []
@@ -679,6 +778,9 @@ def main():
                     "model_id": gen_model_id,
                     "user_roles": user_roles,
                     "headings": headings,
+                    "query_prompt": query_prompt_name,
+                    "answer_prompt": answer_prompt_name,
+                    "judge_prompt": judge_prompt_name,
                     "user_input": q,
                     "retrieved_contexts": contexts,
                     "response": answer,
@@ -819,6 +921,9 @@ def main():
                     "experiment": exp_name,
                     "questions_file": questions_file,
                     "model_id": gen_model_id,
+                    "query_prompt": query_prompt_name,
+                    "answer_prompt": answer_prompt_name,
+                    "judge_prompt": judge_prompt_name,
                     "question": case.input,
                     "faithfulness_score": faithfulness_score,
                     "answer_relevancy_score": answer_rel_score,
@@ -837,6 +942,9 @@ def main():
                 "experiment",
                 "questions_file",
                 "model_id",
+                "query_prompt",
+                "answer_prompt",
+                "judge_prompt",
                 "question",
                 "faithfulness_score",
                 "answer_relevancy_score",
