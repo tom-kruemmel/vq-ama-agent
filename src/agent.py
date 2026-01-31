@@ -13,32 +13,34 @@ class RAGAgent:
     """
     def __init__(
         self,
-        #retriever: VectorRetriever,
         bedrock_client: BedrockClient,
         model_id: str,
-        #prompt_template: str = RAG_PROMPT,
         max_tokens: int = 512,
         temperature: float = 0.7,
         top_p: float = 1.0,
         k: int = 5,
+        generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
+        generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
+        judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT,
     ):
-       # self.retriever = retriever
         self.bedrock = bedrock_client
         self.model_id = model_id
-        #self.prompt_template = prompt_template
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.top_p = top_p
         self.k = k
+        self.generate_queries_prompt = generate_queries_prompt
+        self.generate_answer_prompt = generate_answer_prompt
+        self.judge_question_domain_prompt = judge_question_domain_prompt
 
     def generate_queries(self, question) -> str:
-        prompt = ChatPromptTemplate.from_template(GENERATE_QUERIES_PROMPT)
+        prompt = ChatPromptTemplate.from_template(self.generate_queries_prompt)
         return self.answer_question(prompt.format_messages(question=question))
 
     def generate_answer(self, question, context_docs):
         context_texts = [doc[0] if isinstance(doc, tuple) else doc for doc in context_docs[:5]]
         context = "\n\n".join(context_texts)  # Limit context to top 5 documents
-        answer_prompt = GENERATE_ANSWER_PROMPT.format(context=context, question=question)
+        answer_prompt = self.generate_answer_prompt.format(context=context, question=question)
         return self.answer_question(answer_prompt)
 
     def answer_from_db(self, question: str) -> str:
@@ -87,7 +89,7 @@ class RAGAgent:
             "It excludes unrelated general knowledge and questions about other companies."
         )
 
-        prompt = JUDGE_QUESTION_DOMAIN_PROMPT.format(domain_desc=domain_desc, question=question)
+        prompt = self.judge_question_domain_prompt.format(domain_desc=domain_desc, question=question)
 
         response = self.bedrock.invoke_model(
             model_id=self.model_id,

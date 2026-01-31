@@ -8,6 +8,7 @@ from .rank_fusion import RankFusion
 from .pdf_persister import PdfPersister
 from .role_assigner_validator import RoleAssignerValidator
 from .confidence_checker import ConfidenceChecker
+from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
 
 CHAT_HTML = """
 <!doctype html>
@@ -119,7 +120,10 @@ CHAT_HTML = """
 """
 
 
-def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str]) -> Flask:
+def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
+         generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
+         generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
+         judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT) -> Flask:
     app = Flask(__name__)
     CORS(app)
 
@@ -158,14 +162,23 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str]) -> F
     return app
 
 
-def run_chat_server(agent: RAGAgent, user_roles: list[str], headings: list[str], host: str = '127.0.0.1', port: int = 5000):
-    """
-    Launches the chat web server on localhost.
-    agent: An instance of your RAGAgent
-    user_roles: List of roles to filter retrieval
-    headings: List of document headings to query
-    host: Host interface (default: 127.0.0.1)
-    port: Port number (default: 5000)
-    """
-    app = create_app(agent, user_roles, headings)
-    app.run(host=host, port=port)
+def run_chat_server(agent: RAGAgent, user_roles: list[str], headings: list[str],
+           host: str = '127.0.0.1', port: int = 5000,
+           generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
+           generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
+           judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT):
+  """
+  Launches the chat web server on localhost.
+  agent: An instance of your RAGAgent
+  user_roles: List of roles to filter retrieval
+  headings: List of document headings to query
+  host: Host interface (default: 127.0.0.1)
+  port: Port number (default: 5000)
+  """
+  app = create_app(
+    agent, user_roles, headings,
+    generate_queries_prompt=generate_queries_prompt,
+    generate_answer_prompt=generate_answer_prompt,
+    judge_question_domain_prompt=judge_question_domain_prompt
+  )
+  app.run(host=host, port=port)
