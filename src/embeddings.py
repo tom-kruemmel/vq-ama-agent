@@ -65,14 +65,14 @@ class Embeddings:
         combined_filter = {"$and": filters}
 
 
-        all_results: list = []
+        all_results: list[list] = []
         for q in query_list:
             docs = vector_store.similarity_search(
                 q,
                 k=top_k,
                 filter=combined_filter
             )
-            all_results.extend(docs)
+            all_results.append(docs)  # Keep as list of lists for proper RRF
 
        # self.print_headings(all_results)
         return all_results
