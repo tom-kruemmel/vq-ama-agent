@@ -2,7 +2,6 @@ import os
 import json
 import boto3
 from typing import Dict, Any, List
-import boto3
 from langchain_community.chat_models.bedrock import BedrockChat
 from langchain.prompts import ChatPromptTemplate
 from langchain_chroma import Chroma

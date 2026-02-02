@@ -3,6 +3,8 @@ import pickle
 from typing import List
 
 import faiss
+import numpy as np
+from langchain_openai import OpenAIEmbeddings
 
 
 class VectorRetriever:
@@ -52,7 +54,7 @@ class VectorRetriever:
 
         # 2. Search FAISS index
         distances, indices = self.index.search(
-            faiss.numpy_to_vector(np.array([query_vector], dtype="float32")), k
+            np.array([query_vector], dtype="float32"), k
         )
 
         # 3. Retrieve chunks

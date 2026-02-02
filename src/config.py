@@ -1,6 +1,6 @@
 # src/config.py
 
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     aws_access_key_id: str

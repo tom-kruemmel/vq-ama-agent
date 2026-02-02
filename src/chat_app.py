@@ -5,8 +5,6 @@ from flask_cors import CORS
 from .agent import RAGAgent
 from .embeddings import Embeddings
 from .rank_fusion import RankFusion
-from .pdf_persister import PdfPersister
-from .role_assigner_validator import RoleAssignerValidator
 from .confidence_checker import ConfidenceChecker
 from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
 
