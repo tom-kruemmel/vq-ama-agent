@@ -80,8 +80,8 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
         model: str,
         aws_region_name: str,
         timeout: int = 300,         # <-- default judge timeout
-        max_retries: int = 2,
-        retry_sleep: float = 0.5,
+        max_retries: int = 5,       # <-- increased for rate limits
+        retry_sleep: float = 2.0,   # <-- increased base sleep for backoff
         **kwargs,
     ):
         self.model = model
@@ -290,6 +290,11 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
         if "verdicts" in fields:
             return self._coerce_verdicts_obj(raw)
 
+        # Handle schemas with a top-level 'reason' field (e.g., ContextualRelevancyScoreReason)
+        if "reason" in fields:
+            reason_val = raw.get("reason") or raw.get("explanation") or raw.get("rationale") or ""
+            return {"reason": reason_val}
+
         return raw or {}
 
     def _coerce_legacy(self, raw: Dict[str, Any], schema: Type[BaseModel]) -> Dict[str, Any]:
@@ -333,6 +338,11 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
                 or raw.get("text")
             )
             return {"statements": self._wrap_plain_list_of_str(stmts)}
+
+        # Handle schemas with a top-level 'reason' field (e.g., ContextualRelevancyScoreReason)
+        if "reason" in fields:
+            reason_val = raw.get("reason") or raw.get("explanation") or raw.get("rationale") or ""
+            return {"reason": reason_val}
 
         return raw or {}
 
@@ -399,7 +409,11 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
                 last_exc = e
                 if attempt == self.max_retries:
                     raise
-                await asyncio.sleep(self.retry_sleep)
+                # Use exponential backoff for rate limit errors
+                is_rate_limit = "RateLimitError" in type(e).__name__ or "429" in str(e)
+                sleep_time = self.retry_sleep * (2 ** attempt) if is_rate_limit else self.retry_sleep
+                logger.warning(f"Attempt {attempt + 1} failed: {type(e).__name__}. Retrying in {sleep_time:.1f}s...")
+                await asyncio.sleep(sleep_time)
         raise last_exc  # pragma: no cover
 
     # ---- DeepEval LLM interface ----
@@ -634,7 +648,7 @@ def main():
     fusion = RankFusion()
 
     # Use a single judge model for all systems-under-test
-    judge_model_id = model_ids[0]
+    judge_model_id = "openai.gpt-oss-120b-1:0"
     judge_model = LenientLiteLLMModel(
         model=f"bedrock/{judge_model_id}",
         aws_region_name=region_name,
