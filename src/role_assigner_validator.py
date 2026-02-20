@@ -15,8 +15,8 @@ class RoleAssignerValidator:
     }
 
     heading_list = [
-        "default",
-        "Confidential"
+        "PUBLIC",
+        "CONFIDENTIAL"
     ]
 
     def __init__(self, directory: str):

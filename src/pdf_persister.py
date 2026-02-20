@@ -16,7 +16,7 @@ class PdfPersister:
         directory: str,
         role_map: dict[str, list[str]],
         heading_list: list[str] | None = None,
-        default_heading: str = "default",
+        default_heading: str = "PUBLIC",
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
     ):
@@ -38,9 +38,11 @@ class PdfPersister:
             chunk_overlap=chunk_overlap
         )
 
-    def generate_doc_id(self, text: str, role: str) -> str:
-        # unique per text + role
-        return md5(text.encode("utf-8") + role.encode("utf-8")).hexdigest()
+    def generate_doc_id(self, text: str, role: str, heading: str) -> str:
+        # unique per text + role + heading
+        return md5(
+            text.encode("utf-8") + role.encode("utf-8") + heading.encode("utf-8")
+        ).hexdigest()
 
     def merge_docs(self, raw_docs: list) -> list:
         docs_by_file = {}
@@ -85,7 +87,7 @@ class PdfPersister:
                     chunk.metadata.update({
                         "allowed_roles": role,
                         "heading": self.default_heading,
-                        "doc_id": self.generate_doc_id(chunk.page_content, role)
+                        "doc_id": self.generate_doc_id(chunk.page_content, role, self.default_heading)
                     })
                     all_chunks.append(chunk)
                 continue
@@ -109,7 +111,7 @@ class PdfPersister:
                         c.metadata.update({
                             "allowed_roles": role,
                             "heading": heading,
-                            "doc_id": self.generate_doc_id(c.page_content, role)
+                            "doc_id": self.generate_doc_id(c.page_content, role, heading)
                         })
                         all_chunks.append(c)
 
