@@ -18,6 +18,10 @@ import csv  # <-- moved to top so we can also use it for reading questions.csv
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Debug logger for judge model outputs (set to DEBUG to see detailed parsing)
+judge_logger = logging.getLogger(f"{__name__}.judge_debug")
+judge_logger.setLevel(logging.DEBUG)  # Change to INFO to reduce verbosity
+
 # === Your app pieces ===
 from ..bedrock_client import BedrockClient
 from ..agent import RAGAgent
@@ -31,16 +35,16 @@ from ..prompt_templates import (
     GENERATE_QUERIES_DECOMPOSE,
     # Answer prompts
     GENERATE_ANSWER_PROMPT,
-    GENERATE_ANSWER_QA_TERSE,
+    #GENERATE_ANSWER_QA_TERSE,
     GENERATE_ANSWER_CONVERSATIONAL,
     GENERATE_ANSWER_INSTRUCTION_BLOCK,
-    GENERATE_ANSWER_STRICT_GROUNDING,
-    GENERATE_ANSWER_SOFT_GROUNDING,
+    # GENERATE_ANSWER_STRICT_GROUNDING,
+    # GENERATE_ANSWER_SOFT_GROUNDING,
     GENERATE_ANSWER_UNCERTAINTY_AWARE,
-    GENERATE_ANSWER_CONCISE,
-    GENERATE_ANSWER_LIGHT_REASONING,
+    # GENERATE_ANSWER_CONCISE,
+    # GENERATE_ANSWER_LIGHT_REASONING,
     GENERATE_ANSWER_FULL_COT,
-    GENERATE_ANSWER_BULLET_SUMMARY,
+    # GENERATE_ANSWER_BULLET_SUMMARY,
     # Judge prompts
     JUDGE_QUESTION_DOMAIN_PROMPT,
     JUDGE_DOMAIN_LENIENT,
@@ -104,12 +108,28 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
 
     # ---- helpers ----
     def _safe_json(self, text: str) -> Dict[str, Any]:
+        judge_logger.debug(f"[_safe_json] Raw text input (first 500 chars): {text[:500]}")
         try:
             data = json.loads(text)
             if isinstance(data, dict):
+                judge_logger.debug(f"[_safe_json] Parsed JSON keys: {list(data.keys())}")
+                judge_logger.debug(f"[_safe_json] Parsed JSON content: {json.dumps(data, indent=2)[:1000]}")
                 return data
-        except Exception:
-            pass
+            else:
+                judge_logger.warning(f"[_safe_json] JSON parsed but not a dict, got {type(data).__name__}")
+        except Exception as e:
+            judge_logger.warning(f"[_safe_json] JSON parse failed: {e}")
+            # Try to extract JSON from markdown code blocks
+            import re
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(1))
+                    if isinstance(data, dict):
+                        judge_logger.debug(f"[_safe_json] Extracted JSON from code block: {list(data.keys())}")
+                        return data
+                except Exception:
+                    pass
         return {}
 
     def _pd_fields(self, schema: Type[BaseModel]) -> set:
@@ -353,22 +373,81 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
         if schema is None:
             return text
 
+        schema_name = schema.__name__ if schema else "None"
+        judge_logger.debug(f"[_parse_with_schema] Schema: {schema_name}")
+        judge_logger.debug(f"[_parse_with_schema] Expected fields: {self._pd_fields(schema)}")
+
         raw = self._safe_json(text)
+        
+        if not raw:
+            judge_logger.error(f"[_parse_with_schema] EMPTY JSON from judge! Raw text: {text[:500]}")
 
         # First attempt: "plain" (strings lists; verdicts as objects)
         data = self._coerce_plain(raw, schema)
+        judge_logger.debug(f"[_parse_with_schema] After _coerce_plain: {json.dumps(data, default=str)[:500]}")
         try:
-            return schema.model_validate(data)  # pydantic v2
-        except Exception:
+            result = schema.model_validate(data)  # pydantic v2
+            judge_logger.debug(f"[_parse_with_schema] SUCCESS with plain coercion (pydantic v2): {result}")
+            return result
+        except Exception as e1:
+            judge_logger.debug(f"[_parse_with_schema] Plain coercion pydantic v2 failed: {e1}")
             try:
-                return schema(**data)          # pydantic v1
-            except Exception:
+                result = schema(**data)          # pydantic v1
+                judge_logger.debug(f"[_parse_with_schema] SUCCESS with plain coercion (pydantic v1): {result}")
+                return result
+            except Exception as e2:
+                judge_logger.debug(f"[_parse_with_schema] Plain coercion pydantic v1 failed: {e2}")
                 # Second attempt: legacy (dict-wrapped claims/truths; verdicts as strings)
                 data2 = self._coerce_legacy(raw, schema)
+                judge_logger.debug(f"[_parse_with_schema] After _coerce_legacy: {json.dumps(data2, default=str)[:500]}")
                 try:
-                    return schema.model_validate(data2)
-                except Exception:
-                    return schema(**data2)
+                    result = schema.model_validate(data2)
+                    judge_logger.debug(f"[_parse_with_schema] SUCCESS with legacy coercion (pydantic v2): {result}")
+                    return result
+                except Exception as e3:
+                    judge_logger.debug(f"[_parse_with_schema] Legacy coercion pydantic v2 failed: {e3}")
+                    result = schema(**data2)
+                    judge_logger.warning(f"[_parse_with_schema] FALLBACK with legacy coercion (pydantic v1): {result}")
+                    return result
+
+    # ---- helpers for empty response detection ----
+    def _is_empty_response(self, text: str) -> bool:
+        """
+        Detect if the judge returned an empty or effectively empty response.
+        This includes:
+        - Empty string or whitespace only
+        - Empty JSON object '{}'
+        - JSON with only empty values
+        """
+        if not text or not text.strip():
+            return True
+        stripped = text.strip()
+        if stripped == '{}':
+            return True
+        # Check if it's JSON with only empty arrays/strings
+        try:
+            data = json.loads(stripped)
+            if isinstance(data, dict):
+                # Empty dict
+                if not data:
+                    return True
+                # Dict with all empty values
+                for v in data.values():
+                    if v and v != [''] and v != '':
+                        return False
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _extract_response_text(self, res) -> str:
+        """Extract text content from LiteLLM response."""
+        choice = res.choices[0]
+        return (
+            getattr(choice, "message", {}).get("content")
+            if hasattr(choice, "message")
+            else getattr(choice, "text", "")
+        ) or ""
 
     # ---- internal call helpers (with retry) ----
     def _call_litellm(self, prompt: str):
@@ -383,6 +462,7 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     aws_region_name=self.aws_region_name,
+                    drop_params=True,  # Drop unsupported params for Bedrock
                     **params,
                 )
             except Exception as e:
@@ -403,6 +483,7 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     aws_region_name=self.aws_region_name,
+                    drop_params=True,  # Drop unsupported params for Bedrock
                     **params,
                 )
             except Exception as e:
@@ -418,24 +499,83 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
 
     # ---- DeepEval LLM interface ----
     def generate(self, prompt: str, schema: Optional[Type[BaseModel]] = None):
-        res = self._call_litellm(prompt)
-        choice = res.choices[0]
-        text = (
-            getattr(choice, "message", {}).get("content")
-            if hasattr(choice, "message")
-            else getattr(choice, "text", "")
-        )
-        return self._parse_with_schema(text or "", schema)
+        schema_name = schema.__name__ if schema else "None"
+        judge_logger.debug(f"\n{'='*60}")
+        judge_logger.debug(f"[generate] Called with schema: {schema_name}")
+        judge_logger.debug(f"[generate] Prompt preview (first 300 chars): {prompt[:300]}...")
+        
+        # Retry loop for empty responses
+        max_empty_retries = 3
+        for empty_attempt in range(max_empty_retries):
+            res = self._call_litellm(prompt)
+            text = self._extract_response_text(res)
+            
+            judge_logger.debug(f"[generate] Raw judge response (attempt {empty_attempt + 1}): {text}")
+            
+            if not self._is_empty_response(text):
+                break
+            
+            if empty_attempt < max_empty_retries - 1:
+                judge_logger.warning(
+                    f"[generate] Empty response from judge (attempt {empty_attempt + 1}/{max_empty_retries}), "
+                    f"retrying with reinforced prompt..."
+                )
+                # Add emphasis to get JSON output on retry
+                if empty_attempt == 0:
+                    prompt = prompt + "\n\nIMPORTANT: You MUST respond with a valid JSON object. Do not return an empty response."
+                else:
+                    prompt = prompt + f"\n\n[Retry {empty_attempt + 1}] Please provide the JSON response now."
+                time.sleep(self.retry_sleep)
+            else:
+                judge_logger.error(
+                    f"[generate] Judge returned empty response after {max_empty_retries} attempts. "
+                    f"Schema: {schema_name}. Falling back to default values."
+                )
+        
+        result = self._parse_with_schema(text, schema)
+        judge_logger.debug(f"[generate] Final parsed result: {result}")
+        judge_logger.debug(f"{'='*60}\n")
+        return result
 
     async def a_generate(self, prompt: str, schema: Optional[Type[BaseModel]] = None):
-        res = await self._acall_litellm(prompt)
-        choice = res.choices[0]
-        text = (
-            getattr(choice, "message", {}).get("content")
-            if hasattr(choice, "message")
-            else getattr(choice, "text", "")
-        )
-        return self._parse_with_schema(text or "", schema)
+        schema_name = schema.__name__ if schema else "None"
+        judge_logger.debug(f"\n{'='*60}")
+        judge_logger.debug(f"[a_generate] Called with schema: {schema_name}")
+        judge_logger.debug(f"[a_generate] Prompt preview (first 300 chars): {prompt[:300]}...")
+        
+        # Retry loop for empty responses
+        max_empty_retries = 3
+        original_prompt = prompt
+        for empty_attempt in range(max_empty_retries):
+            res = await self._acall_litellm(prompt)
+            text = self._extract_response_text(res)
+            
+            judge_logger.debug(f"[a_generate] Raw judge response (attempt {empty_attempt + 1}): {text}")
+            
+            if not self._is_empty_response(text):
+                break
+            
+            if empty_attempt < max_empty_retries - 1:
+                judge_logger.warning(
+                    f"[a_generate] Empty response from judge (attempt {empty_attempt + 1}/{max_empty_retries}), "
+                    f"retrying with reinforced prompt..."
+                )
+                # Add emphasis to get JSON output on retry
+                if empty_attempt == 0:
+                    prompt = original_prompt + "\n\nIMPORTANT: You MUST respond with a valid JSON object. Do not return an empty response."
+                else:
+                    prompt = original_prompt + f"\n\n[Retry {empty_attempt + 1}] Please provide the JSON response now. Return a complete JSON object."
+                await asyncio.sleep(self.retry_sleep)
+            else:
+                judge_logger.error(
+                    f"[a_generate] Judge returned empty response after {max_empty_retries} attempts. "
+                    f"Schema: {schema_name}. Falling back to default values."
+                )
+        
+        result = self._parse_with_schema(text, schema)
+        judge_logger.debug(f"[a_generate] Final parsed result: {result}")
+        judge_logger.debug(f"{'='*60}\n")
+        return result
 
 
 # -------------------------
@@ -556,17 +696,18 @@ def main():
     }
 
     ANSWER_PROMPTS = {
-        "default": GENERATE_ANSWER_PROMPT,
-        "qa_terse": GENERATE_ANSWER_QA_TERSE,
+        "qa_terse": GENERATE_ANSWER_PROMPT,
         "conversational": GENERATE_ANSWER_CONVERSATIONAL,
         "instruction_block": GENERATE_ANSWER_INSTRUCTION_BLOCK,
-        "strict_grounding": GENERATE_ANSWER_STRICT_GROUNDING,
-        "soft_grounding": GENERATE_ANSWER_SOFT_GROUNDING,
         "uncertainty_aware": GENERATE_ANSWER_UNCERTAINTY_AWARE,
-        "concise": GENERATE_ANSWER_CONCISE,
-        "light_reasoning": GENERATE_ANSWER_LIGHT_REASONING,
         "full_cot": GENERATE_ANSWER_FULL_COT,
-        "bullet_summary": GENERATE_ANSWER_BULLET_SUMMARY,
+        # Removed (low discriminative value):
+        # "default": GENERATE_ANSWER_PROMPT,
+        # "strict_grounding": GENERATE_ANSWER_STRICT_GROUNDING,
+        # "soft_grounding": GENERATE_ANSWER_SOFT_GROUNDING,
+        # "concise": GENERATE_ANSWER_CONCISE,
+        # "light_reasoning": GENERATE_ANSWER_LIGHT_REASONING,
+        # "bullet_summary": GENERATE_ANSWER_BULLET_SUMMARY,
     }
 
     JUDGE_PROMPTS = {
@@ -649,11 +790,12 @@ def main():
 
     # Use a single judge model for all systems-under-test
     judge_model_id = "openai.gpt-oss-120b-1:0"
+    #judge_model_id = "eu.amazon.nova-pro-v1:0"
     judge_model = LenientLiteLLMModel(
-        model=f"bedrock/{judge_model_id}",
+        model=f"bedrock/converse/{judge_model_id}",
         aws_region_name=region_name,
         temperature=0,
-        max_tokens=512,
+        max_tokens=2048,
         timeout=60,
         response_format={"type": "json_object"},
     )
@@ -946,9 +1088,38 @@ def main():
                     "contextual_precision_score": contextual_precision_score,
                     "num_context_chunks": len(case.retrieval_context or []),
                 })
+
+        # Save results incrementally after each experiment
+        with open(args.csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "experiment",
+                    "questions_file",
+                    "model_id",
+                    "query_prompt",
+                    "answer_prompt",
+                    "judge_prompt",
+                    "question",
+                    "faithfulness_score",
+                    "answer_relevancy_score",
+                    "contextual_relevancy_score",
+                    "contextual_recall_score",
+                    "contextual_precision_score",
+                    "num_context_chunks",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(all_rows)
+        logger.info(f"Saved intermediate DeepEval results to {args.csv} (experiment: {exp_name})")
+
+        with open(args.json, "w", encoding="utf-8") as f:
+            json.dump(all_outputs, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved intermediate pipeline outputs to {args.json} (experiment: {exp_name})")
+
     # ----------------- end experiments loop -----------------
 
-    # Write combined CSV for all models & experiments
+    # Final save (redundant but confirms completion)
     with open(args.csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
@@ -972,9 +1143,10 @@ def main():
         writer.writerows(all_rows)
     logger.info(f"Saved DeepEval metric results to {args.csv}")
 
-    # Write combined JSON for all models & experiments
     with open(args.json, "w", encoding="utf-8") as f:
         json.dump(all_outputs, f, ensure_ascii=False, indent=2)
     logger.info(f"Saved pipeline outputs to {args.json}")
+
+    logger.info("Evaluation complete!")
 
 

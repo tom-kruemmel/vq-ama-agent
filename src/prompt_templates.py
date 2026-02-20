@@ -53,19 +53,20 @@ User's question: {question}
 # GENERATE ANSWER PROMPTS
 # =============================================================================
 
-# Default: Simple Q/A
-GENERATE_ANSWER_PROMPT = """
-Context:
-{context}
+# # Default: Simple Q/A
+# GENERATE_ANSWER_PROMPT = """
+# Context:
+# {context}
 
-Question: {question}
+# Question: {question}
 
-Answer:"""
+# Answer:"""
 
 # --- Structural Style Variants ---
 
 # Q/A Style: Terse, fact-focused
-GENERATE_ANSWER_QA_TERSE = """
+# GENERATE_ANSWER_QA_TERSE
+GENERATE_ANSWER_PROMPT = """
 Context:
 {context}
 
@@ -104,30 +105,6 @@ You are a technical documentation assistant. You must ONLY use information from 
 
 # --- Grounding Strictness Variants ---
 
-# Direct Retrieval: Maximum faithfulness
-GENERATE_ANSWER_STRICT_GROUNDING = """
-Context:
-{context}
-
-Question: {question}
-
-IMPORTANT: Answer using ONLY the information provided in the Context above. Do not add any external knowledge, assumptions, or information not explicitly stated. If the context does not contain enough information to answer, respond with "The provided documents do not contain sufficient information to answer this question."
-
-Answer:
-"""
-
-# Soft-Grounded: Allow some background
-GENERATE_ANSWER_SOFT_GROUNDING = """
-Context:
-{context}
-
-Question: {question}
-
-Answer the question primarily using the context provided. If helpful, you may add brief general background knowledge, but clearly mark it as "[General knowledge:]" to distinguish it from context-based information.
-
-Answer:
-"""
-
 # Uncertainty-Aware
 GENERATE_ANSWER_UNCERTAINTY_AWARE = """
 Context:
@@ -139,37 +116,6 @@ Provide your answer with explicit confidence indicators:
 - State what you can answer confidently from the context
 - For any gaps, explicitly say "Not enough information in the provided documents to determine..."
 - Never guess or fabricate details
-
-Answer:
-"""
-
-# --- Reasoning Depth Variants ---
-
-# No Chain-of-Thought: Concise
-GENERATE_ANSWER_CONCISE = """
-Context:
-{context}
-
-Question: {question}
-
-Give a concise answer in 3-5 sentences maximum. Be direct and factual.
-
-Answer:
-"""
-
-# Light Reasoning
-GENERATE_ANSWER_LIGHT_REASONING = """
-Context:
-{context}
-
-Question: {question}
-
-Answer the question by:
-1. Identifying the relevant information from the context
-2. Briefly explaining how it relates to the question
-3. Stating your conclusion
-
-Keep your response under 150 words.
 
 Answer:
 """
@@ -191,23 +137,6 @@ Then provide your final answer clearly labeled.
 Reasoning and Answer:
 """
 
-
-# --- Output Format Variants ---
-
-# Bullet Summary
-GENERATE_ANSWER_BULLET_SUMMARY = """
-Context:
-{context}
-
-Question: {question}
-
-Provide your answer as:
-• A one-sentence summary
-• 3-5 key bullet points with specific details
-• Any relevant caveats or limitations
-
-Answer:
-"""
 
 
 # =============================================================================
