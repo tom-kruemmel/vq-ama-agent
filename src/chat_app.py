@@ -20,7 +20,7 @@ CHAT_HTML = """
     #chat { flex: 1; overflow-y: auto; padding: 1em; border-bottom: 1px solid #ccc; }
     .message { 
       margin: 0.5em 0; 
-+     white-space: pre-wrap;    /* ← preserve agent’s line breaks */
+      white-space: pre-wrap;
     }
     .user { color: #2a6f97; }
     .agent { color: #6f972a; }
@@ -149,9 +149,24 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
         fusion = RankFusion()
         fused_docs_with_scores = fusion.reciprocal_rank_fusion(retrieved_docs)
         fused_docs = [doc for doc, _ in fused_docs_with_scores]
-        checker = ConfidenceChecker(min_score=0.35, top_k=3)
-        # if not checker.is_confident(fused_docs_with_scores):
-        #     return jsonify({'answer': "I’m sorry, I can’t answer that question."})
+        checker = ConfidenceChecker(
+          top_k=5,
+          min_chunks=3,
+          min_unique_chunks=2,
+          min_total_chars=450,
+          min_top1_score=0.015,
+          min_avg_top3_score=0.011,
+        )
+
+        confident, confidence_details = checker.evaluate(fused_docs_with_scores)
+        if not confident:
+          print(f"Abstain gate triggered: {confidence_details}")
+          return jsonify({
+            'answer': (
+              "I don’t have enough reliable context to answer that confidently. "
+              "Please rephrase your question or provide a bit more detail."
+            )
+          })
 
         # Only if confident, generate an answer
         answer = agent.generate_answer(question, fused_docs)

@@ -1,39 +1,71 @@
 class ConfidenceChecker:
-    def __init__(self, min_score: float = 0.35, top_k: int = 3):
+    def __init__(
+        self,
+        top_k: int = 5,
+        min_chunks: int = 3,
+        min_unique_chunks: int = 2,
+        min_total_chars: int = 450,
+        min_top1_score: float = 0.015,
+        min_avg_top3_score: float = 0.011,
+    ):
         """
-        :param min_score: Minimum acceptable similarity score for retrieved docs
-        :param top_k: How many top documents to consider
+        Confidence gate for RRF-style retrieval outputs: List[Tuple[text, fused_score]].
+
+        Defaults are tuned for the current RRF setup (k=60 in rank fusion), where
+        useful top fused scores are typically around 0.01-0.05.
         """
-        self.min_score = min_score
         self.top_k = top_k
+        self.min_chunks = min_chunks
+        self.min_unique_chunks = min_unique_chunks
+        self.min_total_chars = min_total_chars
+        self.min_top1_score = min_top1_score
+        self.min_avg_top3_score = min_avg_top3_score
 
-    def score_docs(self, docs) -> float:
-        """Compute a confidence score (0.0–1.0) for RRF-style docs: List[Tuple[str, float]]."""
+    def evaluate(self, docs):
         if not docs:
-            return 0.0
+            return False, {
+                "reason": "no_retrieval",
+                "num_chunks": 0,
+                "num_unique_chunks": 0,
+                "total_chars": 0,
+                "top1_score": 0.0,
+                "avg_top3_score": 0.0,
+            }
 
-        # Take top-k tuples (text, score)
-        topk = docs[: self.top_k]
+        top_docs = docs[: self.top_k]
+        top3 = docs[:3]
 
-        # Pull scores from the tuples
-        raw_scores = [s for _, s in topk]
+        texts = [text for text, _ in top_docs]
+        scores = [score for _, score in top_docs]
+        top3_scores = [score for _, score in top3]
 
-        # Normalize RRF scores within top-k to [0,1] so the scale is comparable
-        s_max = max(raw_scores)
-        s_min = min(raw_scores)
-        span = max(s_max - s_min, 1e-12)
-        norm_scores = [(s - s_min) / span for s in raw_scores]
+        num_chunks = len(top_docs)
+        num_unique_chunks = len(set(texts))
+        total_chars = sum(len(text) for text in texts)
+        top1_score = scores[0] if scores else 0.0
+        avg_top3_score = sum(top3_scores) / max(1, len(top3_scores))
 
-        # Confidence from worst of top-k (set should be consistently strong)
-        min_doc_score = min(norm_scores)
+        checks = {
+            "enough_chunks": num_chunks >= self.min_chunks,
+            "enough_unique_chunks": num_unique_chunks >= self.min_unique_chunks,
+            "enough_text": total_chars >= self.min_total_chars,
+            "top1_strong_enough": top1_score >= self.min_top1_score,
+            "top3_avg_strong_enough": avg_top3_score >= self.min_avg_top3_score,
+        }
 
-        # Source diversity: use the text (or its hash) as an identifier
-        # (If you later have real sources, swap this to that field.)
-        unique_sources = {hash(text) for text, _ in topk}
-        coverage = len(unique_sources) / max(1, len(topk))
-        # Blend quality and coverage
-        return 0.7 * min_doc_score + 0.3 * coverage
+        confident = all(checks.values())
+        failed = [name for name, ok in checks.items() if not ok]
+
+        return confident, {
+            "reason": "ok" if confident else "sparse_or_weak_context",
+            "failed_checks": failed,
+            "num_chunks": num_chunks,
+            "num_unique_chunks": num_unique_chunks,
+            "total_chars": total_chars,
+            "top1_score": top1_score,
+            "avg_top3_score": avg_top3_score,
+        }
 
     def is_confident(self, docs) -> bool:
-        # With normalization, 0.75 is a practical default threshold.
-        return self.score_docs(docs) >= 0.75
+        confident, _ = self.evaluate(docs)
+        return confident
