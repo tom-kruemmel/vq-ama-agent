@@ -34,7 +34,7 @@ def chat_loop(agent: RAGAgent, user_roles: list[str], headings: list[str]):
 @app.command()
 def cli():
     user_roles = ["engineer"]  
-    headings = ["default", "Confidential"]
+    headings = ["PUBLIC", "CONFIDENTIAL"]
     load_dotenv()
     model_id = os.getenv("BEDROCK_MODEL_ID")
     #retriever = VectorRetriever(os.getenv("INDEX_PATH", "data/processed/faiss_index.faiss"))

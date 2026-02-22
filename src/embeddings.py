@@ -24,7 +24,7 @@ class Embeddings:
 
     def retrieve_documents(
         self,
-        queries: str,
+        queries: list[str] | str,
         user_roles: list[str],
         headings: list[str] | None = None,
         top_k: int = 5
@@ -32,13 +32,16 @@ class Embeddings:
         """
         Retrieve up to top_k chunks per query, filtered by user_roles and optional headings.
 
-        queries: newline-separated search strings.
+        queries: list of search strings (or a newline-separated string for backwards compat).
         user_roles: roles of the current user.
         headings: optional list of headings to restrict to (e.g., ["Section 1", "default"]).
         top_k: number of results per query.
         Returns: flat list of matching Document chunks.
         """
-        query_list = [q.strip() for q in queries.splitlines() if q.strip()]
+        if isinstance(queries, str):
+            query_list = [q.strip() for q in queries.splitlines() if q.strip()]
+        else:
+            query_list = queries
 
         # Initialize Bedrock embedding model
         bedrock_client = boto3.client("bedrock-runtime")

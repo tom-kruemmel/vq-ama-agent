@@ -15,7 +15,7 @@ class RAGAgent:
         self,
         bedrock_client: BedrockClient,
         model_id: str,
-        max_tokens: int = 512,
+        max_tokens: int = 4096,
         temperature: float = 0.7,
         top_p: float = 1.0,
         k: int = 5,
@@ -25,6 +25,8 @@ class RAGAgent:
     ):
         self.bedrock = bedrock_client
         self.model_id = model_id
+        # Reasoning models (e.g. Qwen3) need a large budget so the
+        # chain-of-thought doesn't exhaust all tokens before the answer.
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.top_p = top_p
@@ -33,9 +35,22 @@ class RAGAgent:
         self.generate_answer_prompt = generate_answer_prompt
         self.judge_question_domain_prompt = judge_question_domain_prompt
 
-    def generate_queries(self, question) -> str:
+    def generate_queries(self, question) -> list[str]:
         prompt = ChatPromptTemplate.from_template(self.generate_queries_prompt)
-        return self.answer_question(prompt.format_messages(question=question))
+        raw = self.answer_question(prompt.format_messages(question=question))
+        # Split on double-newline first (keeps HyDE passages intact),
+        # then split remaining blocks on single newlines (for diverse/decompose).
+        blocks = [b.strip() for b in raw.split("\n\n") if b.strip()]
+        queries = []
+        for block in blocks:
+            lines = [l.strip() for l in block.splitlines() if l.strip()]
+            if len(lines) == 1:
+                queries.append(lines[0])
+            else:
+                # Multi-line block: treat the whole block as one query
+                # (HyDE passage) rather than splitting into individual lines
+                queries.append(block)
+        return queries or [question]
 
     def generate_answer(self, question, context_docs):
         context_texts = [doc[0] if isinstance(doc, tuple) else doc for doc in context_docs[:5]]
@@ -64,7 +79,28 @@ class RAGAgent:
             temperature=self.temperature,
             top_p=self.top_p,
         )
-        return response['output']['message']['content'][0]['text']
+        # Some models (e.g. Qwen3) return reasoningContent blocks before the
+        # text block.  Walk the list and return the first text entry.
+        content_blocks = response['output']['message']['content']
+        for block in content_blocks:
+            if 'text' in block:
+                return block['text']
+
+        # Fallback: if the model exhausted its token budget on reasoning and
+        # never produced a text block, extract the reasoning text so we don't
+        # crash the pipeline.
+        for block in content_blocks:
+            rc = block.get('reasoningContent', {})
+            rt = rc.get('reasoningText', rc)  # may be nested dict or str
+            if isinstance(rt, dict) and 'text' in rt:
+                return rt['text']
+            if isinstance(rt, str):
+                return rt
+
+        raise ValueError(
+            f"No 'text' block found in model response content: "
+            f"{content_blocks}"
+        )
         
         #         # 4. Parse and return the generated answer
         # # Assuming response['results'] is a list of dicts with 'content'
@@ -94,11 +130,19 @@ class RAGAgent:
         response = self.bedrock.invoke_model(
             model_id=self.model_id,
             prompt=prompt,
-            max_tokens=256,
+            max_tokens=2048,
             temperature=0.0,
             top_p=1.0,
         )
-        raw = response['output']['message']['content'][0]['text'].strip()
+        # Extract the first text block (reasoning models may prepend
+        # reasoningContent blocks before the actual text).
+        raw = None
+        for block in response['output']['message']['content']:
+            if 'text' in block:
+                raw = block['text'].strip()
+                break
+        if raw is None:
+            raw = str(response['output']['message']['content'])
 
         try:
             data = json.loads(raw)
