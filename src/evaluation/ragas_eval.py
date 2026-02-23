@@ -721,15 +721,15 @@ def main():
     BASE_CONFIGS = [
         {
             "user_roles": ["engineer"],
-            "headings": ["default"],
-            "questions_file": "src/evaluation/questions_short.csv",
+            "headings": ["PUBLIC"],
+            "questions_file": "src/evaluation/questions_short_public.csv",
         },
-        {
-            "user_roles": ["engineer"],
-            "headings": ["default", "Confidential"],
-            "questions_file": "src/evaluation/questions_short.csv",
-        },
-    ]
+        # {
+        #     "user_roles": ["engineer"],
+        #     "headings": ["PUBLIC", "CONFIDENTIAL"],
+        #     "questions_file": "src/evaluation/questions_short_confidential.csv",
+        # },
+]
 
     # Generate all combinations of prompts for each base config
     experiments = []
@@ -816,6 +816,55 @@ def main():
 
     all_outputs = []  # for JSON
     all_rows = []     # for CSV
+    completed_keys = set()  # (experiment, model_id, question) tuples already evaluated
+
+    # ---- Resume: load existing results if files exist ----
+    CSV_FIELDNAMES = [
+        "experiment", "questions_file", "model_id",
+        "query_prompt", "answer_prompt", "judge_prompt",
+        "question", "faithfulness_score", "answer_relevancy_score",
+        "contextual_relevancy_score", "contextual_recall_score",
+        "contextual_precision_score", "num_context_chunks",
+    ]
+
+    if os.path.isfile(args.csv):
+        try:
+            with open(args.csv, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Normalise numeric fields back from strings
+                    for score_col in (
+                        "faithfulness_score", "answer_relevancy_score",
+                        "contextual_relevancy_score", "contextual_recall_score",
+                        "contextual_precision_score",
+                    ):
+                        val = row.get(score_col, "")
+                        row[score_col] = float(val) if val not in ("", None) else None
+                    nc = row.get("num_context_chunks", "")
+                    row["num_context_chunks"] = int(nc) if nc not in ("", None) else 0
+
+                    all_rows.append(row)
+                    completed_keys.add(
+                        (row["experiment"], row["model_id"], row["question"])
+                    )
+            logger.info(
+                f"Resumed {len(all_rows)} existing rows from {args.csv} "
+                f"({len(completed_keys)} unique experiment/model/question combos)"
+            )
+        except Exception as exc:
+            logger.warning(f"Could not load existing CSV for resume ({exc}); starting fresh.")
+            all_rows.clear()
+            completed_keys.clear()
+
+    if os.path.isfile(args.json):
+        try:
+            with open(args.json, "r", encoding="utf-8") as f:
+                all_outputs = json.load(f)
+            logger.info(f"Resumed {len(all_outputs)} existing pipeline outputs from {args.json}")
+        except Exception as exc:
+            logger.warning(f"Could not load existing JSON for resume ({exc}); starting fresh.")
+            all_outputs = []
+    # ---- End resume loading ----
 
     # Helper to load questions for a given experiment
     def load_dataset(path: str):
@@ -912,8 +961,25 @@ def main():
             test_cases: List[LLMTestCase] = []
             model_outputs = []
 
+            # Check how many questions are already done for this model+experiment
+            pending_questions = [
+                item for item in dataset
+                if (exp_name, gen_model_id, item["question"]) not in completed_keys
+            ]
+            if not pending_questions:
+                logger.info(
+                    f"All {len(dataset)} questions already completed for "
+                    f"model={gen_model_id} experiment={exp_name}. Skipping."
+                )
+                continue
+            logger.info(
+                f"{len(dataset) - len(pending_questions)}/{len(dataset)} questions "
+                f"already done; running {len(pending_questions)} remaining "
+                f"(model={gen_model_id} experiment={exp_name})"
+            )
+
             # iterate over questions + expected answers from experiment's CSV
-            for item in dataset:
+            for item in pending_questions:
                 q = item["question"]
                 expected_ans = item["expected_answer"]
 
@@ -954,6 +1020,10 @@ def main():
                 time.sleep(0.05)
 
             all_outputs.extend(model_outputs)
+
+            if not test_cases:
+                logger.info(f"No new test cases for model={gen_model_id} experiment={exp_name}. Skipping eval.")
+                continue
 
             # Run eval for this model (DeepEval will attach scores to test_cases)
             evaluate(test_cases=test_cases, metrics=metrics)
@@ -1073,7 +1143,7 @@ def main():
 
                 time.sleep(0.25)
 
-                all_rows.append({
+                new_row = {
                     "experiment": exp_name,
                     "questions_file": questions_file,
                     "model_id": gen_model_id,
@@ -1087,65 +1157,36 @@ def main():
                     "contextual_recall_score": contextual_recall_score,
                     "contextual_precision_score": contextual_precision_score,
                     "num_context_chunks": len(case.retrieval_context or []),
-                })
+                }
+                all_rows.append(new_row)
+                completed_keys.add((exp_name, gen_model_id, case.input))
 
-        # Save results incrementally after each experiment
-        with open(args.csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "experiment",
-                    "questions_file",
-                    "model_id",
-                    "query_prompt",
-                    "answer_prompt",
-                    "judge_prompt",
-                    "question",
-                    "faithfulness_score",
-                    "answer_relevancy_score",
-                    "contextual_relevancy_score",
-                    "contextual_recall_score",
-                    "contextual_precision_score",
-                    "num_context_chunks",
-                ],
-            )
-            writer.writeheader()
-            writer.writerows(all_rows)
-        logger.info(f"Saved intermediate DeepEval results to {args.csv} (experiment: {exp_name})")
+                # Incremental save after each question so a crash loses at most 1 question
+                with open(args.csv, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
+                    writer.writeheader()
+                    writer.writerows(all_rows)
+                with open(args.json, "w", encoding="utf-8") as f:
+                    json.dump(all_outputs, f, ensure_ascii=False, indent=2)
 
-        with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(all_outputs, f, ensure_ascii=False, indent=2)
-        logger.info(f"Saved intermediate pipeline outputs to {args.json} (experiment: {exp_name})")
+        # Log progress after each experiment
+        logger.info(
+            f"Saved intermediate results ({len(all_rows)} total rows) "
+            f"to {args.csv} (experiment: {exp_name})"
+        )
 
     # ----------------- end experiments loop -----------------
 
     # Final save (redundant but confirms completion)
     with open(args.csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "experiment",
-                "questions_file",
-                "model_id",
-                "query_prompt",
-                "answer_prompt",
-                "judge_prompt",
-                "question",
-                "faithfulness_score",
-                "answer_relevancy_score",
-                "contextual_relevancy_score",
-                "contextual_recall_score",
-                "contextual_precision_score",
-                "num_context_chunks",
-            ],
-        )
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
         writer.writeheader()
         writer.writerows(all_rows)
-    logger.info(f"Saved DeepEval metric results to {args.csv}")
+    logger.info(f"Saved DeepEval metric results to {args.csv} ({len(all_rows)} rows)")
 
     with open(args.json, "w", encoding="utf-8") as f:
         json.dump(all_outputs, f, ensure_ascii=False, indent=2)
-    logger.info(f"Saved pipeline outputs to {args.json}")
+    logger.info(f"Saved pipeline outputs to {args.json} ({len(all_outputs)} entries)")
 
     logger.info("Evaluation complete!")
 
