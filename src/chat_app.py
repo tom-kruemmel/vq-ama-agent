@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
+from collections import deque
+import uuid
 
 # Import your existing agent and components
 from .agent import RAGAgent
@@ -7,6 +9,29 @@ from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .confidence_checker import ConfidenceChecker
 from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
+
+# --------------- chat history helpers ---------------
+MAX_HISTORY_TURNS = 5  # keep last N Q/A pairs per session
+
+# session_id -> deque([(question, answer), ...])
+_session_histories: dict[str, deque] = {}
+
+
+def _get_history(session_id: str) -> deque:
+    if session_id not in _session_histories:
+        _session_histories[session_id] = deque(maxlen=MAX_HISTORY_TURNS)
+    return _session_histories[session_id]
+
+
+def _format_history(history: deque) -> str:
+    """Format recent turns into a string for the prompt."""
+    if not history:
+        return "(No previous conversation)"
+    lines = []
+    for q, a in history:
+        lines.append(f"User: {q}")
+        lines.append(f"Assistant: {a}")
+    return "\n".join(lines)
 
 CHAT_HTML = """
 <!doctype html>

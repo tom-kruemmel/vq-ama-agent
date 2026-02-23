@@ -52,10 +52,12 @@ class RAGAgent:
                 queries.append(block)
         return queries or [question]
 
-    def generate_answer(self, question, context_docs):
+    def generate_answer(self, question, context_docs, chat_history: str = ""):
         context_texts = [doc[0] if isinstance(doc, tuple) else doc for doc in context_docs[:5]]
         context = "\n\n".join(context_texts)  # Limit context to top 5 documents
-        answer_prompt = self.generate_answer_prompt.format(context=context, question=question)
+        answer_prompt = self.generate_answer_prompt.format(
+            context=context, question=question, chat_history=chat_history
+        )
         return self.answer_question(answer_prompt)
 
     def answer_from_db(self, question: str) -> str:
@@ -111,7 +113,7 @@ class RAGAgent:
         # # Fallback: return full response JSON as string
         # return str(response)
 
-    def judge_question_domain(self, question: str, *, min_score: float = 0.60):
+    def judge_question_domain(self, question: str, *, chat_history: str = "", min_score: float = 0.60):
         """
         Uses the LLM to judge whether the user's QUESTION is in-domain for:
         'virtualQ (the company) and its technology stack.'
@@ -125,7 +127,9 @@ class RAGAgent:
             "It excludes unrelated general knowledge and questions about other companies."
         )
 
-        prompt = self.judge_question_domain_prompt.format(domain_desc=domain_desc, question=question)
+        prompt = self.judge_question_domain_prompt.format(
+            domain_desc=domain_desc, question=question, chat_history=chat_history
+        )
 
         response = self.bedrock.invoke_model(
             model_id=self.model_id,

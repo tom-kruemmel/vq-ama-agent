@@ -67,19 +67,25 @@ User's question: {question}
 # Q/A Style: Terse, fact-focused
 # GENERATE_ANSWER_QA_TERSE
 GENERATE_ANSWER_PROMPT = """
+Conversation so far:
+{chat_history}
+
 Context:
 {context}
 
 Question: {question}
 
-Instructions: Provide a direct, factual answer in 2-4 sentences. Cite specific details from the context.
+Instructions: Provide a direct, factual answer in 2-4 sentences. Cite specific details from the context. Use the conversation history to resolve pronouns and references.
 
 Answer:
 """
 
 # Conversational Style
 GENERATE_ANSWER_CONVERSATIONAL = """
-Based on the information below, explain the answer to the user's question in a friendly, conversational manner. Use simple language and provide helpful context where needed.
+Conversation so far:
+{chat_history}
+
+Based on the information below, explain the answer to the user's question in a friendly, conversational manner. Use simple language and provide helpful context where needed. Use the conversation history to resolve pronouns and references.
 
 Information:
 {context}
@@ -92,7 +98,10 @@ Response:
 # Instruction Block Style (enterprise)
 GENERATE_ANSWER_INSTRUCTION_BLOCK = """
 [SYSTEM]
-You are a technical documentation assistant. You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so.
+You are a technical documentation assistant. You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
+
+[CONVERSATION HISTORY]
+{chat_history}
 
 [CONTEXT]
 {context}
@@ -107,12 +116,15 @@ You are a technical documentation assistant. You must ONLY use information from 
 
 # Uncertainty-Aware
 GENERATE_ANSWER_UNCERTAINTY_AWARE = """
+Conversation so far:
+{chat_history}
+
 Context:
 {context}
 
 Question: {question}
 
-Provide your answer with explicit confidence indicators:
+Provide your answer with explicit confidence indicators. Use the conversation history to resolve pronouns and references.
 - State what you can answer confidently from the context
 - For any gaps, explicitly say "Not enough information in the provided documents to determine..."
 - Never guess or fabricate details
@@ -122,12 +134,15 @@ Answer:
 
 # Full Chain-of-Thought
 GENERATE_ANSWER_FULL_COT = """
+Conversation so far:
+{chat_history}
+
 Context:
 {context}
 
 Question: {question}
 
-Think through this step-by-step:
+Think through this step-by-step (use the conversation history to resolve pronouns and references):
 1. What specific information from the context is relevant?
 2. How do these pieces of information connect?
 3. What can we conclude?
@@ -164,14 +179,19 @@ Reasoning and Answer:
 # Stricter with Examples
 JUDGE_QUESTION_DOMAIN_PROMPT = """
 You are a domain classifier. Determine if the USER QUESTION belongs to the DOMAIN.
+Use the CONVERSATION HISTORY to resolve pronouns and references in the question (e.g. "it", "that", "their").
 
 DOMAIN:
 {domain_desc}
+
+CONVERSATION HISTORY:
+{chat_history}
 
 Examples of IN-DOMAIN questions:
 - "How does virtualQ handle call routing?"
 - "What cloud provider does virtualQ use?"
 - "Explain the CI/CD pipeline at virtualQ"
+- Follow-ups like "How does it scale?" when the previous turn was about virtualQ infrastructure
 
 Examples of OUT-OF-DOMAIN questions:
 - "What is the capital of France?"
@@ -192,9 +212,13 @@ JSON:
 # Lenient with Benefit of Doubt
 JUDGE_DOMAIN_LENIENT = """
 You are a helpful domain classifier. Give the benefit of the doubt to questions that could reasonably relate to the domain, even if indirectly.
+Use the CONVERSATION HISTORY to resolve pronouns and references in the question.
 
 DOMAIN:
 {domain_desc}
+
+CONVERSATION HISTORY:
+{chat_history}
 
 USER QUESTION:
 {question}
@@ -212,14 +236,18 @@ JSON:
 # Two-Stage Reasoning
 JUDGE_DOMAIN_TWO_STAGE = """
 Classify whether the USER QUESTION is IN-DOMAIN for the given DOMAIN.
+Use the CONVERSATION HISTORY to resolve pronouns and references in the question.
 
 DOMAIN:
 {domain_desc}
 
+CONVERSATION HISTORY:
+{chat_history}
+
 USER QUESTION:
 {question}
 
-First, identify the main topic of the question.
+First, identify the main topic of the question (consider conversation context).
 Then, determine if that topic falls within the domain.
 
 Return ONLY a JSON object with these keys:
@@ -233,6 +261,10 @@ JSON:
 # Category-Based
 JUDGE_DOMAIN_CATEGORY = """
 Classify the USER QUESTION into one of these categories, then determine if it's in-domain.
+Use the CONVERSATION HISTORY to resolve pronouns and references in the question.
+
+CONVERSATION HISTORY:
+{chat_history}
 
 Categories:
 - VIRTUALQ_SPECIFIC: Directly about virtualQ products/practices
