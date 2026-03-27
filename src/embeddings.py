@@ -27,7 +27,7 @@ class Embeddings:
         queries: list[str] | str,
         user_roles: list[str],
         headings: list[str] | None = None,
-        top_k: int = 5
+        top_k: int = 10
     ) -> list:
         """
         Retrieve up to top_k chunks per query, filtered by user_roles and optional headings.

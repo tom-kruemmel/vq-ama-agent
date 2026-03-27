@@ -44,7 +44,7 @@ def cli():
     valid, missing, unknown = validator.validate_role_assignments()
     if missing:
         typer.echo(f"Missing role assignments for: {', '.join(missing)}")
-    persister = PdfPersister(directory="data/confluence_pdfs", role_map=RoleAssignerValidator.pdf_to_roles_map, heading_list=RoleAssignerValidator.heading_list, chunk_size=1000, chunk_overlap=200)
+    persister = PdfPersister(directory="data/confluence_pdfs", role_map=RoleAssignerValidator.pdf_to_roles_map, heading_list=RoleAssignerValidator.heading_list, chunk_size=500, chunk_overlap=100)
     persister.persist_pdfs()
     # chat_loop(agent,user_roles, headings)
     run_chat_server(agent, user_roles, headings)

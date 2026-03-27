@@ -97,13 +97,23 @@ class PdfPersister:
 
             def _emit_text_as_chunks(text, heading):
                 """Split large text if needed, then emit one chunk per role with given heading."""
-                if len(text) > self.chunk_size:
+                # Skip junk chunks (page numbers, TOC stubs, etc.)
+                if len(text.strip()) < 50:
+                    return
+
+                # Prepend section heading for better retrieval context
+                if heading and heading != self.default_heading:
+                    prefixed_text = f"{heading}\n{text}"
+                else:
+                    prefixed_text = text
+
+                if len(prefixed_text) > self.chunk_size:
                     tmp = copy.deepcopy(doc)
-                    tmp.page_content = text
+                    tmp.page_content = prefixed_text
                     subchunks = self.fallback_splitter.split_documents([tmp])
                 else:
                     subchunks = [copy.deepcopy(doc)]
-                    subchunks[0].page_content = text
+                    subchunks[0].page_content = prefixed_text
 
                 for chunk in subchunks:
                     for role in roles:
