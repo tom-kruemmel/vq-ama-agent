@@ -9,6 +9,7 @@ from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .confidence_checker import ConfidenceChecker
 from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
+from .utils import detect_language
 
 # --------------- chat history helpers ---------------
 MAX_HISTORY_TURNS = 5  # keep last N Q/A pairs per session
@@ -158,6 +159,7 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
     def chat():
         data = request.get_json()
         question = data.get('question', '')
+        language = detect_language(question)
         # RAG workflow
         in_domain, dq_score, dq_rationale = agent.judge_question_domain(
             question,
@@ -165,9 +167,11 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
         )
         print(f"Domain judge: {in_domain} (score: {dq_score:.3f}) -- {dq_rationale}")
         if not in_domain:
-            return jsonify({
-                'answer': "I can help with questions about virtualQ and its technology stack. Please ask a question related to that.",
-          })
+            if language == "German":
+                msg = "Ich kann bei Fragen zu virtualQ und dessen Technologie-Stack helfen. Bitte stellen Sie eine entsprechende Frage."
+            else:
+                msg = "I can help with questions about virtualQ and its technology stack. Please ask a question related to that."
+            return jsonify({'answer': msg})
         queries = agent.generate_queries(question)
         retriever = Embeddings()
         retrieved_docs = retriever.retrieve_documents(queries, user_roles, headings)
@@ -186,15 +190,20 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
         confident, confidence_details = checker.evaluate(fused_docs_with_scores)
         if not confident:
           print(f"Abstain gate triggered: {confidence_details}")
-          return jsonify({
-            'answer': (
-              "I don’t have enough reliable context to answer that confidently. "
-              "Please rephrase your question or provide a bit more detail."
-            )
-          })
+          if language == "German":
+              abstain_msg = (
+                  "Ich habe nicht genügend zuverlässigen Kontext, um diese Frage sicher zu beantworten. "
+                  "Bitte formulieren Sie Ihre Frage um oder geben Sie mehr Details an."
+              )
+          else:
+              abstain_msg = (
+                  "I don't have enough reliable context to answer that confidently. "
+                  "Please rephrase your question or provide a bit more detail."
+              )
+          return jsonify({'answer': abstain_msg})
 
         # Only if confident, generate an answer
-        answer = agent.generate_answer(question, fused_docs)
+        answer = agent.generate_answer(question, fused_docs, language=language)
         return jsonify({'answer': answer})
 
     return app

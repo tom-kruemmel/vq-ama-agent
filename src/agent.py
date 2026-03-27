@@ -19,6 +19,7 @@ class RAGAgent:
         temperature: float = 0.7,
         top_p: float = 1.0,
         k: int = 5,
+        context_limit: int = 5,
         generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
         generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
         judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT,
@@ -31,6 +32,7 @@ class RAGAgent:
         self.temperature = temperature
         self.top_p = top_p
         self.k = k
+        self.context_limit = context_limit
         self.generate_queries_prompt = generate_queries_prompt
         self.generate_answer_prompt = generate_answer_prompt
         self.judge_question_domain_prompt = judge_question_domain_prompt
@@ -52,11 +54,11 @@ class RAGAgent:
                 queries.append(block)
         return queries or [question]
 
-    def generate_answer(self, question, context_docs, chat_history: str = ""):
-        context_texts = [doc[0] if isinstance(doc, tuple) else doc for doc in context_docs[:5]]
-        context = "\n\n".join(context_texts)  # Limit context to top 5 documents
+    def generate_answer(self, question, context_docs, chat_history: str = "", language: str = "English"):
+        context_texts = [doc[0] if isinstance(doc, tuple) else doc for doc in context_docs[:self.context_limit]]
+        context = "\n\n".join(context_texts)
         answer_prompt = self.generate_answer_prompt.format(
-            context=context, question=question, chat_history=chat_history
+            context=context, question=question, chat_history=chat_history, language=language
         )
         return self.answer_question(answer_prompt)
 

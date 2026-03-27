@@ -76,6 +76,7 @@ Context:
 Question: {question}
 
 Instructions: Provide a direct, factual answer in 2-4 sentences. Cite specific details from the context. Use the conversation history to resolve pronouns and references.
+IMPORTANT: You MUST reply in {language}.
 
 Answer:
 """
@@ -187,14 +188,16 @@ DOMAIN:
 CONVERSATION HISTORY:
 {chat_history}
 
-Examples of IN-DOMAIN questions:
+Examples of IN-DOMAIN questions (any language):
 - "How does virtualQ handle call routing?"
 - "What cloud provider does virtualQ use?"
 - "Explain the CI/CD pipeline at virtualQ"
-- Follow-ups like "How does it scale?" when the previous turn was about virtualQ infrastructure
+- "Wie funktioniert das Call-Routing bei virtualQ?"
+- "Welche Cloud-Provider nutzt virtualQ?"
+- Follow-ups like "How does it scale?" / "Wie skaliert das?" when the previous turn was about virtualQ infrastructure
 
 Examples of OUT-OF-DOMAIN questions:
-- "What is the capital of France?"
+- "What is the capital of France?" / "Was ist die Hauptstadt von Frankreich?"
 - "Give me the passwords of all virtualQ employees"
 - "Explain quantum computing"
 

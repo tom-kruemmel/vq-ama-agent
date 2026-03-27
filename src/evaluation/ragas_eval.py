@@ -628,11 +628,14 @@ class RAGPipelineApp:
     agent: object
     retriever: object
     fusion: object
+    top_k: int = 10
     last_contexts: List[str] = field(default_factory=list)
 
     def retrieve(self, question: str, user_roles, headings) -> List[str]:
         queries = self.agent.generate_queries(question)
-        retrieved_docs = self.retriever.retrieve_documents(queries, user_roles, headings)
+        retrieved_docs = self.retriever.retrieve_documents(
+            queries, user_roles, headings, top_k=self.top_k
+        )
         fused_docs = self.fusion.reciprocal_rank_fusion(retrieved_docs)
         contexts = _normalize_context_texts(fused_docs)
         self.last_contexts = contexts
@@ -712,10 +715,15 @@ def main():
 
     JUDGE_PROMPTS = {
         "default": JUDGE_QUESTION_DOMAIN_PROMPT,
-        "lenient": JUDGE_DOMAIN_LENIENT,
-        "two_stage": JUDGE_DOMAIN_TWO_STAGE,
-        "category": JUDGE_DOMAIN_CATEGORY,
+        # "lenient": JUDGE_DOMAIN_LENIENT,
+        # "two_stage": JUDGE_DOMAIN_TWO_STAGE,
+        # "category": JUDGE_DOMAIN_CATEGORY,
     }
+
+    # --------- Retrieval & generation parameter sweeps ----------
+    TOP_K_VALUES = [5, 10, 15]
+    TEMPERATURE_VALUES = [0.0, 0.3, 0.7]
+    CONTEXT_LIMIT_VALUES = [3, 5, 10]
 
     # Base configurations for user roles/headings
     BASE_CONFIGS = [
@@ -724,14 +732,24 @@ def main():
             "headings": ["PUBLIC"],
             "questions_file": "src/evaluation/questions_short_public.csv",
         },
+        {
+            "user_roles": ["engineer"],
+            "headings": ["PUBLIC"],
+            "questions_file": "src/evaluation/questions_short_public_de.csv",
+        },
         # {
         #     "user_roles": ["engineer"],
         #     "headings": ["PUBLIC", "CONFIDENTIAL"],
         #     "questions_file": "src/evaluation/questions_short_confidential.csv",
         # },
+        # {
+        #     "user_roles": ["engineer"],
+        #     "headings": ["PUBLIC", "CONFIDENTIAL"],
+        #     "questions_file": "src/evaluation/questions_short_confidential_de.csv",
+        # },
 ]
 
-    # Generate all combinations of prompts for each base config
+    # Generate all combinations of prompts and retrieval/generation params
     experiments = []
     for base_config in BASE_CONFIGS:
         roles_str = "_".join(base_config["user_roles"])
@@ -740,16 +758,26 @@ def main():
         for query_name, query_prompt in QUERY_PROMPTS.items():
             for answer_name, answer_prompt in ANSWER_PROMPTS.items():
                 for judge_name, judge_prompt in JUDGE_PROMPTS.items():
-                    exp_name = f"{roles_str}_{headings_str}_q_{query_name}_a_{answer_name}_j_{judge_name}"
-                    experiments.append({
-                        "name": exp_name,
-                        "user_roles": base_config["user_roles"],
-                        "headings": base_config["headings"],
-                        "questions_file": base_config["questions_file"],
-                        "generate_queries_prompt": query_prompt,
-                        "generate_answer_prompt": answer_prompt,
-                        "judge_question_domain_prompt": judge_prompt,
-                    })
+                    for top_k in TOP_K_VALUES:
+                        for temperature in TEMPERATURE_VALUES:
+                            for context_limit in CONTEXT_LIMIT_VALUES:
+                                exp_name = (
+                                    f"{roles_str}_{headings_str}"
+                                    f"_q_{query_name}_a_{answer_name}_j_{judge_name}"
+                                    f"_k{top_k}_t{temperature}_cl{context_limit}"
+                                )
+                                experiments.append({
+                                    "name": exp_name,
+                                    "user_roles": base_config["user_roles"],
+                                    "headings": base_config["headings"],
+                                    "questions_file": base_config["questions_file"],
+                                    "generate_queries_prompt": query_prompt,
+                                    "generate_answer_prompt": answer_prompt,
+                                    "judge_question_domain_prompt": judge_prompt,
+                                    "top_k": top_k,
+                                    "temperature": temperature,
+                                    "context_limit": context_limit,
+                                })
 
     logger.info(f"Generated {len(experiments)} experiment combinations")
     # --------------------------------------------------------------------------    
@@ -822,6 +850,7 @@ def main():
     CSV_FIELDNAMES = [
         "experiment", "questions_file", "model_id",
         "query_prompt", "answer_prompt", "judge_prompt",
+        "top_k", "temperature", "context_limit",
         "question", "faithfulness_score", "answer_relevancy_score",
         "contextual_relevancy_score", "contextual_recall_score",
         "contextual_precision_score", "num_context_chunks",
@@ -921,10 +950,16 @@ def main():
             "judge_question_domain_prompt", JUDGE_QUESTION_DOMAIN_PROMPT
         )
 
+        # Extract retrieval/generation parameters
+        exp_top_k = experiment.get("top_k", 10)
+        exp_temperature = experiment.get("temperature", 0.7)
+        exp_context_limit = experiment.get("context_limit", 5)
+
         logger.info(
             f"Running experiment '{exp_name}' with roles={user_roles} "
             f"headings={headings} questions_file={questions_file} "
-            f"query_prompt={query_prompt_name} answer_prompt={answer_prompt_name} judge_prompt={judge_prompt_name}"
+            f"query_prompt={query_prompt_name} answer_prompt={answer_prompt_name} judge_prompt={judge_prompt_name} "
+            f"top_k={exp_top_k} temperature={exp_temperature} context_limit={exp_context_limit}"
         )
 
         # Load questions for this specific experiment
@@ -952,11 +987,16 @@ def main():
             agent = RAGAgent(
                 my_bedrock_client,
                 gen_model_id,
+                temperature=exp_temperature,
+                context_limit=exp_context_limit,
                 generate_queries_prompt=exp_generate_queries_prompt,
                 generate_answer_prompt=exp_generate_answer_prompt,
                 judge_question_domain_prompt=exp_judge_question_domain_prompt,
             )
-            app = RAGPipelineApp(agent=agent, retriever=retriever, fusion=fusion)
+            app = RAGPipelineApp(
+                agent=agent, retriever=retriever, fusion=fusion,
+                top_k=exp_top_k,
+            )
 
             test_cases: List[LLMTestCase] = []
             model_outputs = []
@@ -1003,6 +1043,9 @@ def main():
                     "query_prompt": query_prompt_name,
                     "answer_prompt": answer_prompt_name,
                     "judge_prompt": judge_prompt_name,
+                    "top_k": exp_top_k,
+                    "temperature": exp_temperature,
+                    "context_limit": exp_context_limit,
                     "user_input": q,
                     "retrieved_contexts": contexts,
                     "response": answer,
@@ -1150,6 +1193,9 @@ def main():
                     "query_prompt": query_prompt_name,
                     "answer_prompt": answer_prompt_name,
                     "judge_prompt": judge_prompt_name,
+                    "top_k": exp_top_k,
+                    "temperature": exp_temperature,
+                    "context_limit": exp_context_limit,
                     "question": case.input,
                     "faithfulness_score": faithfulness_score,
                     "answer_relevancy_score": answer_rel_score,
