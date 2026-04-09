@@ -27,8 +27,10 @@ pi-heif = "^1.0.0"
 unstructured-inference = "^1.0.5"
 pdf2image = "^1.17.0"
 poppler-utils = "^0.1.0"
+langdetect = "^1.0.9"
 flask = "^3.1.1"
 flask-cors = "^6.0.1"
+sentence-transformers = ">=2.2.0,<4.0.0"
 ragas= "^0.3.0"
 pyarrow = ">=14.0.1,<20.0.0"
 trulens="^2.2.1"
@@ -36,6 +38,11 @@ trulens-providers-bedrock="^2.2.1"
 trulens-providers-litellm="^2.2.1"
 trulens-dashboard="^2.2.1"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-cov = "^6.0"
+
 [tool.poetry.scripts]
 vq-ama-agent = "src.main:cli"
 evaluate-rag = "src.evaluation.ragas_eval:main"
+visualize-deepeval-results = "src.evaluation.visualize_deepeval:main"

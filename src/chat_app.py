@@ -208,7 +208,7 @@ def create_app(
         fused_docs_with_scores = _fusion.reciprocal_rank_fusion(retrieved_docs)
         fused_docs = [chunk.text for chunk in fused_docs_with_scores]
 
-        confident, confidence_details = _checker.evaluate(fused_docs_with_scores)
+        confident, confidence_details = _checker.evaluate(fused_docs_with_scores, question)
         if not confident:
           logger.info("Abstain gate triggered: %s", confidence_details)
           if language == "German":
