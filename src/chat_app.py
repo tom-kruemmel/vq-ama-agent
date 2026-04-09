@@ -1,7 +1,8 @@
+import threading
+from collections import deque
+
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
-from collections import deque
-import uuid
 
 # Import your existing agent and components
 from .agent import RAGAgent
@@ -16,12 +17,14 @@ MAX_HISTORY_TURNS = 5  # keep last N Q/A pairs per session
 
 # session_id -> deque([(question, answer), ...])
 _session_histories: dict[str, deque] = {}
+_session_lock = threading.Lock()
 
 
 def _get_history(session_id: str) -> deque:
-    if session_id not in _session_histories:
-        _session_histories[session_id] = deque(maxlen=MAX_HISTORY_TURNS)
-    return _session_histories[session_id]
+    with _session_lock:
+        if session_id not in _session_histories:
+            _session_histories[session_id] = deque(maxlen=MAX_HISTORY_TURNS)
+        return _session_histories[session_id]
 
 
 def _format_history(history: deque) -> str:
@@ -151,6 +154,13 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
     app = Flask(__name__)
     CORS(app)
 
+    # Reuse a single Embeddings instance across requests
+    retriever = Embeddings()
+
+    @app.route('/health')
+    def health():
+        return jsonify({'status': 'ok'})
+
     @app.route('/')
     def index():
         return render_template_string(CHAT_HTML)
@@ -173,7 +183,6 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
                 msg = "I can help with questions about virtualQ and its technology stack. Please ask a question related to that."
             return jsonify({'answer': msg})
         queries = agent.generate_queries(question)
-        retriever = Embeddings()
         retrieved_docs = retriever.retrieve_documents(queries, user_roles, headings)
         fusion = RankFusion()
         fused_docs_with_scores = fusion.reciprocal_rank_fusion(retrieved_docs)
@@ -210,7 +219,7 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
 
 
 def run_chat_server(agent: RAGAgent, user_roles: list[str], headings: list[str],
-           host: str = '127.0.0.1', port: int = 5000,
+           host: str = '127.0.0.1', port: int = 8000,
            generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
            generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
            judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT):

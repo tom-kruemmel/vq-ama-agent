@@ -177,16 +177,13 @@ class PdfPersister:
     
 
     def persist_pdfs(self, batch_size: int = 1000):
-    # local helper (avoids needing self.batched)
         def _batched(iterable, n):
             it = iter(iterable)
             while True:
-                batch = list(itertools.islice(it, n))
+                batch = list(islice(it, n))
                 if not batch:
                     break
                 yield batch
-
-        import itertools
 
         bedrock = boto3.client("bedrock-runtime")
         embeddings = BedrockEmbeddings(

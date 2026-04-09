@@ -1,11 +1,14 @@
+import json
+import logging
 import os
 from typing import List
 
-from .bedrock_client import BedrockClient
-from .retriever import VectorRetriever
 from langchain.prompts import ChatPromptTemplate
-import json
+
+from .bedrock_client import BedrockClient
 from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
+
+logger = logging.getLogger(__name__)
 
 class RAGAgent:
     """
@@ -52,6 +55,8 @@ class RAGAgent:
                 # Multi-line block: treat the whole block as one query
                 # (HyDE passage) rather than splitting into individual lines
                 queries.append(block)
+        if not queries:
+            logger.warning("Query generation returned no queries; falling back to original question.")
         return queries or [question]
 
     def generate_answer(self, question, context_docs, chat_history: str = "", language: str = "English"):
@@ -62,20 +67,10 @@ class RAGAgent:
         )
         return self.answer_question(answer_prompt)
 
-    def answer_from_db(self, question: str) -> str:
-        return self.bedrock.retrieve_from_db(self.model_id, question)
     def answer_question(self, question: str) -> str:
         """
-        Retrieves relevant document chunks and queries Bedrock to generate an answer.
+        Queries Bedrock to generate an answer.
         """
-        # 1. Retrieve top-k relevant chunks
-        #docs: List[str] = self.retriever.retrieve(question, k=self.k)
-
-        # # 2. Build the prompt
-        # context = "\n\n".join(docs)
-        # prompt = self.prompt_template.format(context=context, question=question)
-
-        # 3. Invoke the Bedrock model
         response = self.bedrock.invoke_model(
             model_id=self.model_id,
             prompt=question,
@@ -105,15 +100,6 @@ class RAGAgent:
             f"No 'text' block found in model response content: "
             f"{content_blocks}"
         )
-        
-        #         # 4. Parse and return the generated answer
-        # # Assuming response['results'] is a list of dicts with 'content'
-        # results = response.get('results') or []
-        # if results and isinstance(results, list):
-        #     # Join multiple generations if present
-        #     return "\n".join(res.get('content', '') for res in results)
-        # # Fallback: return full response JSON as string
-        # return str(response)
 
     def judge_question_domain(self, question: str, *, chat_history: str = "", min_score: float = 0.60):
         """
@@ -155,8 +141,8 @@ class RAGAgent:
             in_domain = bool(data.get("in_domain"))
             score = float(data.get("score", 0.0))
             rationale = str(data.get("rationale", "")).strip()
-        except Exception:
-            # If parsing fails, treat as out-of-domain
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("Judge JSON parse failed: %s — raw response: %.200s", exc, raw)
             in_domain, score, rationale = False, 0.0, "Judge JSON parse failed."
 
         # Apply threshold

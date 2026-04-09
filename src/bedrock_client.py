@@ -1,19 +1,25 @@
 import os
 import json
-import boto3
+import logging
+import random
+import time
 from typing import Dict, Any, List
-from langchain_community.chat_models.bedrock import BedrockChat
-from langchain.prompts import ChatPromptTemplate
-from langchain_chroma import Chroma
-from langchain.chains import RetrievalQA
-from langchain_aws import ChatBedrock
-from langchain_aws import BedrockEmbeddings
 
-# 🔽 minimal additions for throttling handling
-import time, random
+import boto3
 import botocore
 from botocore.config import Config
-# 🔼
+
+logger = logging.getLogger(__name__)
+
+# Non-retryable error codes — fail fast instead of wasting retries
+_NON_RETRYABLE_CODES = frozenset({
+    "AccessDeniedException",
+    "UnrecognizedClientException",
+    "ValidationException",
+    "ResourceNotFoundException",
+    "ModelNotReadyException",
+})
+
 
 class BedrockClient:
     """
@@ -22,19 +28,21 @@ class BedrockClient:
     """
 
     def __init__(self):
-        # Read credentials + region from env
-        aws_access_key_id     = os.getenv("AWS_ACCESS_KEY_ID")
+        aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
         aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-        region_name           = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+        region_name = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 
-        # Create a session that will automatically sign requests
+        if not aws_access_key_id or not aws_secret_access_key:
+            raise EnvironmentError(
+                "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set. "
+                "See .env.example for the required environment variables."
+            )
+
         session = boto3.Session(
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name,
         )
-        # Bedrock uses the 'bedrock-runtime' client for inference
-        # 🔽 minimal change: add retry-friendly client config
         self.client = session.client(
             'bedrock-runtime',
             config=Config(
@@ -43,69 +51,15 @@ class BedrockClient:
                 connect_timeout=10,
             )
         )
-        # 🔼
 
-    
     def get_account_id(self) -> str:
         sts = boto3.Session().client('sts')
         return sts.get_caller_identity()['Account']
 
     def list_models(self) -> List[Dict[str, Any]]:
-        # Some regions require the 'bedrock' meta-client
         meta = self.client.meta.client('bedrock')
         resp = meta.list_foundation_models()
         return resp.get('foundationModels', [])
-
-    # def create_inference_profile(
-    #     self):
-    #     control_plane = boto3.client('bedrock', region_name='eu-central-1')
-    #     res = control_plane.create_inference_profile(
-    #         inferenceProfileName='my-pixtral-profile',
-    #         modelSource={
-    #             'copyFrom': 'arn:aws:bedrock:eu-central-1::foundation-model/mistral.pixtral-large-2502-v1:0'
-    #         },
-    #         description='Profile for Pixtral Large',
-    #         tags=[{'key': 'Project', 'value': 'MyApp'}]
-    #     )
-    #     return res['inferenceProfileArn']
-
-    def retrieve_from_db(self, model_id, prompt):
-
-        embedding_model = BedrockEmbeddings(
-            client=self.client,
-            model_id="amazon.titan-embed-text-v2:0"
-        )
-
-        vector_store = Chroma(
-            persist_directory="./chroma_store/",
-            collection_name="pdf_docs",
-            embedding_function=embedding_model
-        )
-
-        # Create a retriever
-        retriever = vector_store.as_retriever(search_kwargs={"k": 5})
-
-        # Initialize Bedrock chat model
-        chat_model = ChatBedrock(
-            model_id=model_id,
-            client=self.client,
-            provider="mistral"
-        )
-
-        collection = vector_store._collection
-        document_count = collection.count()
-        docs = retriever.get_relevant_documents(prompt)
-        breakpoint()
-
-        # Set up RetrievalQA chain
-        qa = RetrievalQA.from_chain_type(
-            llm=chat_model,
-            chain_type="stuff",
-            retriever=retriever
-        )
-
-        # Run a sample query
-        answer = qa.invoke(prompt)
 
     def invoke_model(
         self,
@@ -141,7 +95,6 @@ class BedrockClient:
             }
         }
 
-        # 🔽 minimal change: throttle-safe retry wrapper around converse
         inference_cfg = payload["inferenceConfig"]
         max_retries = 8
         base = 0.5  # seconds
@@ -159,16 +112,24 @@ class BedrockClient:
                 return resp
             except botocore.exceptions.ClientError as e:
                 code = e.response.get("Error", {}).get("Code", "")
+                # Fail fast on non-retryable errors (auth, validation, etc.)
+                if code in _NON_RETRYABLE_CODES:
+                    raise
                 if code in (
                     "ThrottlingException",
                     "TooManyRequestsException",
                     "RequestLimitExceeded",
                     "ServiceQuotaExceededException",
                 ):
-                    # exponential backoff + jitter
                     sleep = min(8.0, base * (2 ** attempt)) + random.uniform(0, 0.25)
+                    logger.warning(
+                        "Bedrock throttled (attempt %d/%d, code=%s). "
+                        "Retrying in %.1fs…", attempt + 1, max_retries, code, sleep,
+                    )
                     time.sleep(sleep)
                     continue
-                # non-throttling errors bubble up unchanged
                 raise
-        # 🔼
+
+        raise RuntimeError(
+            f"Bedrock request failed after {max_retries} retries (last error: throttling)"
+        )

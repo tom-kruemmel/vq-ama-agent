@@ -1,17 +1,32 @@
+import os
+
+import boto3
 from langchain_aws import BedrockEmbeddings
 from langchain_chroma import Chroma
-import boto3
+
 
 class Embeddings:
 
-    def __init__(self):
+    def __init__(
+        self,
+        persist_directory: str = "./chroma_store",
+        collection_name: str = "pdf_with_roles",
+        model_id: str = "amazon.titan-embed-text-v2:0",
+    ):
         """
-        Initializes the embeddings class.
-        This class is responsible for generating embeddings and retrieving documents based on those embeddings.
+        Initializes the embeddings class once and reuses the embedding model
+        and vector store across retrieve calls.
         """
-        pass
-
-    # Initialize the embedding mode
+        bedrock_client = boto3.client("bedrock-runtime")
+        self._embedding_model = BedrockEmbeddings(
+            client=bedrock_client,
+            model_id=model_id,
+        )
+        self._vector_store = Chroma(
+            persist_directory=persist_directory,
+            collection_name=collection_name,
+            embedding_function=self._embedding_model,
+        )
     def split_string_by_newlines(self, input_string):
         return input_string.split('\n')
 
@@ -43,20 +58,6 @@ class Embeddings:
         else:
             query_list = queries
 
-        # Initialize Bedrock embedding model
-        bedrock_client = boto3.client("bedrock-runtime")
-        embedding_model = BedrockEmbeddings(
-            client=bedrock_client,
-            model_id="amazon.titan-embed-text-v2:0",
-        )
-
-        # Load the vector store
-        vector_store = Chroma(
-            persist_directory="./chroma_store",
-            collection_name="pdf_with_roles",
-            embedding_function=embedding_model
-        )
-
         # Build a list of your individual filters
         filters = [
             {"allowed_roles": {"$in": user_roles}}
@@ -70,12 +71,11 @@ class Embeddings:
 
         all_results: list[list] = []
         for q in query_list:
-            docs = vector_store.similarity_search(
+            docs = self._vector_store.similarity_search(
                 q,
                 k=top_k,
                 filter=combined_filter
             )
             all_results.append(docs)  # Keep as list of lists for proper RRF
 
-       # self.print_headings(all_results)
         return all_results
