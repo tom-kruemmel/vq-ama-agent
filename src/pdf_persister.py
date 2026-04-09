@@ -6,9 +6,14 @@ import boto3
 from langchain_aws import BedrockEmbeddings
 from langchain_chroma import Chroma
 from hashlib import md5
+import json
+import logging
 import os
 import copy
 from itertools import islice
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 class PdfPersister:
     def __init__(
@@ -37,6 +42,40 @@ class PdfPersister:
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap
         )
+        self._manifest_path = os.path.join(
+            os.path.dirname(directory) or ".", ".pdf_manifest.json"
+        )
+
+    # ------------------------------------------------------------------
+    # Change detection: hash all PDFs so we can skip re-indexing
+    # ------------------------------------------------------------------
+
+    def _compute_directory_hash(self) -> str:
+        """Return a single MD5 digest covering every PDF file's name, size and content."""
+        h = md5()
+        pdf_dir = Path(self.loader.path)
+        pdf_files = sorted(pdf_dir.glob("*.pdf"))
+        for p in pdf_files:
+            h.update(p.name.encode())
+            h.update(str(p.stat().st_size).encode())
+            h.update(p.read_bytes())
+        return h.hexdigest()
+
+    def _load_manifest(self) -> dict:
+        if os.path.exists(self._manifest_path):
+            with open(self._manifest_path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _save_manifest(self, directory_hash: str) -> None:
+        with open(self._manifest_path, "w") as f:
+            json.dump({"directory_hash": directory_hash}, f)
+
+    def has_changes(self) -> bool:
+        """Return True if the PDFs have changed since the last persist."""
+        current_hash = self._compute_directory_hash()
+        manifest = self._load_manifest()
+        return current_hash != manifest.get("directory_hash")
 
     def generate_doc_id(self, text: str, role: str, heading: str) -> str:
         # unique per text + role + heading
@@ -177,6 +216,12 @@ class PdfPersister:
     
 
     def persist_pdfs(self, batch_size: int = 1000):
+        current_hash = self._compute_directory_hash()
+        manifest = self._load_manifest()
+        if current_hash == manifest.get("directory_hash"):
+            logger.info("PDFs unchanged since last persist — skipping re-indexing.")
+            return
+
         def _batched(iterable, n):
             it = iter(iterable)
             while True:
@@ -226,4 +271,6 @@ class PdfPersister:
             f"Upserted {len(ids)} chunks. "
             f"Total docs now: {collection._collection.count()}"
         )
+        self._save_manifest(current_hash)
+        logger.info("PDF manifest updated.")
 
