@@ -39,7 +39,7 @@ class BedrockClient:
             'bedrock-runtime',
             config=Config(
                 retries={"max_attempts": 10, "mode": "standard"},
-                read_timeout=60,
+                read_timeout=300,
                 connect_timeout=10,
             )
         )
