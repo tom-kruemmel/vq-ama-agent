@@ -204,36 +204,26 @@ class PdfPersister:
         metadatas = [d.metadata for d in docs]
         ids = [m["doc_id"] for m in metadatas]
 
-        # Find which IDs already exist (in batches to avoid query limits)
-        existing_ids = set()
-        for id_batch in _batched(ids, batch_size):
-            # NOTE: remove include=["ids"]; Chroma returns found IDs by default
-            got = collection._collection.get(ids=id_batch)
-            existing_ids.update(got.get("ids", []) or [])
-
-        # Keep only new items
-        new_items = [(t, m, i) for t, m, i in zip(texts, metadatas, ids) if i not in existing_ids]
-
-        if not new_items:
-            print("Nothing new to persist. Total docs (unchanged):", collection._collection.count())
+        if not texts:
+            print("No documents found to persist.")
             return
 
-        new_texts, new_metadatas, new_ids = zip(*new_items)
+        # Embed all texts (Chroma upsert handles deduplication, so we
+        # skip the previous two-pass "check then insert" pattern).
+        embs = embeddings.embed_documents(texts)
 
-        # Embed only new texts (saving cost/time)
-        new_embs = embeddings.embed_documents(list(new_texts))
-
-        # Upsert only the new items
-        collection._collection.upsert(
-            ids=list(new_ids),
-            embeddings=new_embs,
-            documents=list(new_texts),
-            metadatas=list(new_metadatas),
-        )
+        # Upsert in batches to stay within Chroma limits
+        for batch in _batched(list(zip(ids, embs, texts, metadatas)), batch_size):
+            b_ids, b_embs, b_texts, b_metas = zip(*batch)
+            collection._collection.upsert(
+                ids=list(b_ids),
+                embeddings=list(b_embs),
+                documents=list(b_texts),
+                metadatas=list(b_metas),
+            )
 
         print(
-            f"Inserted {len(new_ids)} new chunks. "
-            f"Skipped {len(existing_ids)} existing. "
+            f"Upserted {len(ids)} chunks. "
             f"Total docs now: {collection._collection.count()}"
         )
 

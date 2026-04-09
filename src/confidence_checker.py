@@ -1,3 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .rank_fusion import ScoredChunk
+
+
 class ConfidenceChecker:
     def __init__(
         self,
@@ -21,7 +29,7 @@ class ConfidenceChecker:
         self.min_top1_score = min_top1_score
         self.min_avg_top3_score = min_avg_top3_score
 
-    def evaluate(self, docs):
+    def evaluate(self, docs: list[ScoredChunk]) -> tuple[bool, dict]:
         if not docs:
             return False, {
                 "reason": "no_retrieval",
@@ -35,9 +43,9 @@ class ConfidenceChecker:
         top_docs = docs[: self.top_k]
         top3 = docs[:3]
 
-        texts = [text for text, _ in top_docs]
-        scores = [score for _, score in top_docs]
-        top3_scores = [score for _, score in top3]
+        texts = [d.text for d in top_docs]
+        scores = [d.score for d in top_docs]
+        top3_scores = [d.score for d in top3]
 
         num_chunks = len(top_docs)
         num_unique_chunks = len(set(texts))
@@ -66,6 +74,6 @@ class ConfidenceChecker:
             "avg_top3_score": avg_top3_score,
         }
 
-    def is_confident(self, docs) -> bool:
+    def is_confident(self, docs: list[ScoredChunk]) -> bool:
         confident, _ = self.evaluate(docs)
         return confident

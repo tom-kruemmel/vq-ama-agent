@@ -1,3 +1,4 @@
+import logging
 import threading
 from collections import deque
 
@@ -6,11 +7,13 @@ from flask_cors import CORS
 
 # Import your existing agent and components
 from .agent import RAGAgent
+from .domain_judge import DomainJudge
 from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .confidence_checker import ConfidenceChecker
-from .prompt_templates import GENERATE_QUERIES_PROMPT, GENERATE_ANSWER_PROMPT, JUDGE_QUESTION_DOMAIN_PROMPT
-from .utils import detect_language
+from .utils import detect_language, sanitize_user_input
+
+logger = logging.getLogger(__name__)
 
 # --------------- chat history helpers ---------------
 MAX_HISTORY_TURNS = 5  # keep last N Q/A pairs per session
@@ -147,15 +150,29 @@ CHAT_HTML = """
 """
 
 
-def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
-         generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
-         generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
-         judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT) -> Flask:
+def create_app(
+    agent: RAGAgent,
+    domain_judge: DomainJudge,
+    user_roles: list[str],
+    headings: list[str],
+    retriever: Embeddings | None = None,
+    fusion: RankFusion | None = None,
+    confidence_checker: ConfidenceChecker | None = None,
+) -> Flask:
     app = Flask(__name__)
     CORS(app)
 
-    # Reuse a single Embeddings instance across requests
-    retriever = Embeddings()
+    # Use injected instances or create defaults
+    _retriever = retriever or Embeddings()
+    _fusion = fusion or RankFusion()
+    _checker = confidence_checker or ConfidenceChecker(
+        top_k=5,
+        min_chunks=3,
+        min_unique_chunks=2,
+        min_total_chars=450,
+        min_top1_score=0.015,
+        min_avg_top3_score=0.011,
+    )
 
     @app.route('/health')
     def health():
@@ -168,14 +185,18 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
     @app.route('/chat', methods=['POST'])
     def chat():
         data = request.get_json()
-        question = data.get('question', '')
+        if not data or 'question' not in data:
+            return jsonify({'error': 'Missing "question" field'}), 400
+        question = sanitize_user_input(data['question'])
+        if not question:
+            return jsonify({'error': 'Question cannot be empty'}), 400
         language = detect_language(question)
         # RAG workflow
-        in_domain, dq_score, dq_rationale = agent.judge_question_domain(
+        in_domain, dq_score, dq_rationale = domain_judge.judge(
             question,
-            min_score=0.60,  # tune as you like
+            min_score=0.60,
         )
-        print(f"Domain judge: {in_domain} (score: {dq_score:.3f}) -- {dq_rationale}")
+        logger.info("Domain judge: %s (score: %.3f) -- %s", in_domain, dq_score, dq_rationale)
         if not in_domain:
             if language == "German":
                 msg = "Ich kann bei Fragen zu virtualQ und dessen Technologie-Stack helfen. Bitte stellen Sie eine entsprechende Frage."
@@ -183,22 +204,13 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
                 msg = "I can help with questions about virtualQ and its technology stack. Please ask a question related to that."
             return jsonify({'answer': msg})
         queries = agent.generate_queries(question)
-        retrieved_docs = retriever.retrieve_documents(queries, user_roles, headings)
-        fusion = RankFusion()
-        fused_docs_with_scores = fusion.reciprocal_rank_fusion(retrieved_docs)
-        fused_docs = [doc for doc, _ in fused_docs_with_scores]
-        checker = ConfidenceChecker(
-          top_k=5,
-          min_chunks=3,
-          min_unique_chunks=2,
-          min_total_chars=450,
-          min_top1_score=0.015,
-          min_avg_top3_score=0.011,
-        )
+        retrieved_docs = _retriever.retrieve_documents(queries, user_roles, headings)
+        fused_docs_with_scores = _fusion.reciprocal_rank_fusion(retrieved_docs)
+        fused_docs = [chunk.text for chunk in fused_docs_with_scores]
 
-        confident, confidence_details = checker.evaluate(fused_docs_with_scores)
+        confident, confidence_details = _checker.evaluate(fused_docs_with_scores)
         if not confident:
-          print(f"Abstain gate triggered: {confidence_details}")
+          logger.info("Abstain gate triggered: %s", confidence_details)
           if language == "German":
               abstain_msg = (
                   "Ich habe nicht genügend zuverlässigen Kontext, um diese Frage sicher zu beantworten. "
@@ -218,23 +230,24 @@ def create_app(agent: RAGAgent, user_roles: list[str], headings: list[str],
     return app
 
 
-def run_chat_server(agent: RAGAgent, user_roles: list[str], headings: list[str],
-           host: str = '127.0.0.1', port: int = 8000,
-           generate_queries_prompt: str = GENERATE_QUERIES_PROMPT,
-           generate_answer_prompt: str = GENERATE_ANSWER_PROMPT,
-           judge_question_domain_prompt: str = JUDGE_QUESTION_DOMAIN_PROMPT):
+def run_chat_server(
+    agent: RAGAgent,
+    domain_judge: DomainJudge,
+    user_roles: list[str],
+    headings: list[str],
+    host: str = '127.0.0.1',
+    port: int = 8000,
+    retriever: Embeddings | None = None,
+    fusion: RankFusion | None = None,
+    confidence_checker: ConfidenceChecker | None = None,
+):
   """
   Launches the chat web server on localhost.
-  agent: An instance of your RAGAgent
-  user_roles: List of roles to filter retrieval
-  headings: List of document headings to query
-  host: Host interface (default: 127.0.0.1)
-  port: Port number (default: 5000)
   """
   app = create_app(
-    agent, user_roles, headings,
-    generate_queries_prompt=generate_queries_prompt,
-    generate_answer_prompt=generate_answer_prompt,
-    judge_question_domain_prompt=judge_question_domain_prompt
+    agent, domain_judge, user_roles, headings,
+    retriever=retriever,
+    fusion=fusion,
+    confidence_checker=confidence_checker,
   )
   app.run(host=host, port=port)
