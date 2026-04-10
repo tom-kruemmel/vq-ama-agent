@@ -10,6 +10,7 @@ from .agent import RAGAgent
 from .domain_judge import DomainJudge
 from .embeddings import Embeddings
 from .rank_fusion import RankFusion
+from .reranker import CrossEncoderReranker
 from .confidence_checker import ConfidenceChecker
 from .utils import detect_language, sanitize_user_input
 
@@ -156,7 +157,9 @@ def create_app(
     headings: list[str],
     retriever: Embeddings | None = None,
     fusion: RankFusion | None = None,
+    reranker: CrossEncoderReranker | None = None,
     confidence_checker: ConfidenceChecker | None = None,
+    rerank_top_n: int = 10,
 ) -> Flask:
     app = Flask(__name__)
     CORS(app)
@@ -164,14 +167,8 @@ def create_app(
     # Use injected instances or create defaults
     _retriever = retriever or Embeddings()
     _fusion = fusion or RankFusion()
-    _checker = confidence_checker or ConfidenceChecker(
-        top_k=5,
-        min_chunks=3,
-        min_unique_chunks=2,
-        min_total_chars=450,
-        min_top1_score=0.015,
-        min_avg_top3_score=0.011,
-    )
+    _reranker = reranker or CrossEncoderReranker()
+    _checker = confidence_checker or ConfidenceChecker()
 
     @app.route('/health')
     def health():
@@ -204,10 +201,13 @@ def create_app(
             return jsonify({'answer': msg})
         queries = agent.generate_queries(question)
         retrieved_docs = _retriever.retrieve_documents(queries, headings)
-        fused_docs_with_scores = _fusion.reciprocal_rank_fusion(retrieved_docs)
-        fused_docs = [chunk.text for chunk in fused_docs_with_scores]
+        fused_docs = _fusion.reciprocal_rank_fusion(retrieved_docs)
 
-        confident, confidence_details = _checker.evaluate(fused_docs_with_scores, question)
+        # Cross-encoder re-rank: score all fused candidates, keep top N
+        reranked = _reranker.rerank(question, fused_docs, top_n=rerank_top_n)
+
+        # Confidence gate reuses cross-encoder scores from re-ranking
+        confident, confidence_details = _checker.evaluate(reranked)
         if not confident:
           logger.info("Abstain gate triggered: %s", confidence_details)
           if language == "German":
@@ -222,8 +222,9 @@ def create_app(
               )
           return jsonify({'answer': abstain_msg})
 
-        # Only if confident, generate an answer
-        answer = agent.generate_answer(question, fused_docs, language=language)
+        # Only if confident, generate an answer from re-ranked context
+        context_texts = [chunk.text for chunk in reranked]
+        answer = agent.generate_answer(question, context_texts, language=language)
         return jsonify({'answer': answer})
 
     return app
@@ -237,6 +238,7 @@ def run_chat_server(
     port: int = 8000,
     retriever: Embeddings | None = None,
     fusion: RankFusion | None = None,
+    reranker: CrossEncoderReranker | None = None,
     confidence_checker: ConfidenceChecker | None = None,
 ):
   """
@@ -246,6 +248,7 @@ def run_chat_server(
     agent, domain_judge, headings,
     retriever=retriever,
     fusion=fusion,
+    reranker=reranker,
     confidence_checker=confidence_checker,
   )
   app.run(host=host, port=port)
