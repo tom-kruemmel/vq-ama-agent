@@ -12,7 +12,7 @@ from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .reranker import CrossEncoderReranker
 from .confidence_checker import ConfidenceChecker
-from .utils import detect_language, sanitize_user_input
+from .pipeline import run_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -183,49 +183,27 @@ def create_app(
         data = request.get_json()
         if not data or 'question' not in data:
             return jsonify({'error': 'Missing "question" field'}), 400
-        question = sanitize_user_input(data['question'])
-        if not question:
+        question = data['question']
+        if not question or not question.strip():
             return jsonify({'error': 'Question cannot be empty'}), 400
-        language = detect_language(question)
-        # RAG workflow
-        in_domain, dq_score, dq_rationale = domain_judge.judge(
+
+        result = run_pipeline(
             question,
-            min_score=0.60,
+            agent=agent,
+            headings=headings,
+            retriever=_retriever,
+            fusion=_fusion,
+            reranker=_reranker,
+            confidence_checker=_checker,
+            domain_judge=domain_judge,
+            rerank_top_n=rerank_top_n,
+            enforce_gates=True,
+            sanitize=True,
         )
-        logger.info("Domain judge: %s (score: %.3f) -- %s", in_domain, dq_score, dq_rationale)
-        if not in_domain:
-            if language == "German":
-                msg = "Ich kann bei Fragen zu virtualQ und dessen Technologie-Stack helfen. Bitte stellen Sie eine entsprechende Frage."
-            else:
-                msg = "I can help with questions about virtualQ and its technology stack. Please ask a question related to that."
-            return jsonify({'answer': msg})
-        queries = agent.generate_queries(question)
-        retrieved_docs = _retriever.retrieve_documents(queries, headings)
-        fused_docs = _fusion.reciprocal_rank_fusion(retrieved_docs)
 
-        # Cross-encoder re-rank: score all fused candidates, keep top N
-        reranked = _reranker.rerank(question, fused_docs, top_n=rerank_top_n)
-
-        # Confidence gate reuses cross-encoder scores from re-ranking
-        confident, confidence_details = _checker.evaluate(reranked)
-        if not confident:
-          logger.info("Abstain gate triggered: %s", confidence_details)
-          if language == "German":
-              abstain_msg = (
-                  "Ich habe nicht genügend zuverlässigen Kontext, um diese Frage sicher zu beantworten. "
-                  "Bitte formulieren Sie Ihre Frage um oder geben Sie mehr Details an."
-              )
-          else:
-              abstain_msg = (
-                  "I don't have enough reliable context to answer that confidently. "
-                  "Please rephrase your question or provide a bit more detail."
-              )
-          return jsonify({'answer': abstain_msg})
-
-        # Only if confident, generate an answer from re-ranked context
-        context_texts = [chunk.text for chunk in reranked]
-        answer = agent.generate_answer(question, context_texts, language=language)
-        return jsonify({'answer': answer})
+        if result.answer is None:
+            return jsonify({'error': 'Question cannot be empty'}), 400
+        return jsonify({'answer': result.answer})
 
     return app
 

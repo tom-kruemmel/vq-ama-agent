@@ -30,6 +30,7 @@ from ..embeddings import Embeddings
 from ..rank_fusion import RankFusion
 from ..reranker import CrossEncoderReranker
 from ..confidence_checker import ConfidenceChecker
+from ..pipeline import run_pipeline, PipelineResult
 from ..prompt_templates import (
     # Query prompts
     GENERATE_QUERIES_PROMPT,
@@ -633,41 +634,33 @@ class RAGPipelineApp:
     fusion: object
     reranker: object = None
     checker: object = None
+    domain_judge: object = None
     top_k: int = 10
     rerank_top_n: int = 10
     last_contexts: List[str] = field(default_factory=list)
     last_confidence_features: Dict[str, Any] = field(default_factory=dict)
-
-    def retrieve(self, question: str, headings) -> List[str]:
-        queries = self.agent.generate_queries(question)
-        retrieved_docs = self.retriever.retrieve_documents(
-            queries, headings, top_k=self.top_k
-        )
-        fused_docs = self.fusion.reciprocal_rank_fusion(retrieved_docs)
-
-        # Cross-encoder re-rank + confidence feature logging
-        if self.reranker is not None:
-            reranked = self.reranker.rerank(
-                question, fused_docs, top_n=self.rerank_top_n
-            )
-            if self.checker is not None:
-                _, self.last_confidence_features = self.checker.evaluate(reranked)
-            else:
-                self.last_confidence_features = {}
-            contexts = [chunk.text for chunk in reranked]
-        else:
-            self.last_confidence_features = {}
-            contexts = _normalize_context_texts(fused_docs)
-
-        self.last_contexts = contexts
-        return contexts
-
-    def generate(self, question: str, contexts: List[str]) -> str:
-        return self.agent.generate_answer(question, contexts)
+    last_result: PipelineResult | None = None
 
     def query(self, question: str, headings) -> str:
-        ctx = self.retrieve(question, headings)
-        return self.generate(question, ctx)
+        """Run the full shared pipeline with gates in record-only mode."""
+        result = run_pipeline(
+            question,
+            agent=self.agent,
+            headings=headings,
+            retriever=self.retriever,
+            fusion=self.fusion,
+            reranker=self.reranker,
+            confidence_checker=self.checker,
+            domain_judge=self.domain_judge,
+            rerank_top_n=self.rerank_top_n,
+            top_k=self.top_k,
+            enforce_gates=False,   # record scores but always generate
+            sanitize=False,        # eval questions are pre-curated
+        )
+        self.last_result = result
+        self.last_contexts = result.contexts
+        self.last_confidence_features = result.confidence_details
+        return result.answer or ""
 
 
 def pick_accessible_model(session, preferred_id: str, region_name: str) -> str:
@@ -832,6 +825,7 @@ def main():
     fusion = RankFusion()
     _reranker = CrossEncoderReranker()
     _checker = ConfidenceChecker()
+    _domain_judge = None  # lazily created per-experiment with the right prompt
 
     # Use a single judge model for all systems-under-test
     judge_model_id = "openai.gpt-oss-120b-1:0"
@@ -869,6 +863,9 @@ def main():
         # Confidence gate features (for threshold calibration)
         "gate_confident", "gate_num_chunks", "gate_num_unique_chunks",
         "gate_total_chars", "gate_top1_relevance", "gate_avg_top3_relevance",
+        # Domain judge features
+        "domain_in_domain", "domain_score", "domain_rationale",
+        "rejected_domain", "abstained",
     ]
 
     # ---- Per-questions-file state (separate CSV + JSON per file) ----
@@ -1036,15 +1033,22 @@ def main():
                 generate_queries_prompt=exp_generate_queries_prompt,
                 generate_answer_prompt=exp_generate_answer_prompt,
             )
+            _domain_judge = DomainJudge(
+                my_bedrock_client,
+                gen_model_id,
+                prompt_template=exp_judge_question_domain_prompt,
+            )
             app = RAGPipelineApp(
                 agent=agent, retriever=retriever, fusion=fusion,
                 reranker=_reranker, checker=_checker,
+                domain_judge=_domain_judge,
                 top_k=exp_top_k,
             )
 
             test_cases: List[LLMTestCase] = []
             model_outputs = []
             _confidence_features_by_question: Dict[str, Dict[str, Any]] = {}
+            _pipeline_results_by_question: Dict[str, PipelineResult] = {}
 
             # Check how many questions are already done for this model+experiment
             pending_questions = [
@@ -1072,12 +1076,17 @@ def main():
                 answer = app.query(q, headings)
                 contexts = app.last_contexts or []
                 _confidence_features_by_question[q] = app.last_confidence_features.copy()
+                pipeline_result = app.last_result
+                _pipeline_results_by_question[q] = pipeline_result
 
                 logger.info(
                     f"[CASE] experiment={exp_name} model={gen_model_id} "
                     f"question={q[:80]!r} "
                     f"response_len={len(answer) if answer else 0} "
-                    f"context_chunks={len(contexts)}"
+                    f"context_chunks={len(contexts)} "
+                    f"domain={pipeline_result.domain_in_domain} "
+                    f"confident={pipeline_result.confident} "
+                    f"abstained={pipeline_result.abstained}"
                 )
 
                 model_outputs.append({
@@ -1095,6 +1104,11 @@ def main():
                     "retrieved_contexts": contexts,
                     "response": answer,
                     "expected_answer": expected_ans,
+                    "domain_in_domain": pipeline_result.domain_in_domain,
+                    "domain_score": pipeline_result.domain_score,
+                    "rejected_domain": pipeline_result.rejected_domain,
+                    "confident": pipeline_result.confident,
+                    "abstained": pipeline_result.abstained,
                 })
 
                 test_cases.append(
@@ -1234,6 +1248,9 @@ def main():
                 # Look up confidence features logged during retrieval
                 cf = _confidence_features_by_question.get(case.input, {})
 
+                # Look up pipeline result for domain/abstention data
+                pr = _pipeline_results_by_question.get(case.input)
+
                 new_row = {
                     "experiment": exp_name,
                     "questions_file": questions_file,
@@ -1258,6 +1275,12 @@ def main():
                     "gate_total_chars": cf.get("total_chars"),
                     "gate_top1_relevance": cf.get("top1_relevance"),
                     "gate_avg_top3_relevance": cf.get("avg_top3_relevance"),
+                    # Domain judge & abstention
+                    "domain_in_domain": pr.domain_in_domain if pr else None,
+                    "domain_score": pr.domain_score if pr else None,
+                    "domain_rationale": pr.domain_rationale if pr else None,
+                    "rejected_domain": pr.rejected_domain if pr else False,
+                    "abstained": pr.abstained if pr else False,
                 }
                 fstate["rows"].append(new_row)
                 fstate["completed"].add((exp_name, gen_model_id, case.input))
