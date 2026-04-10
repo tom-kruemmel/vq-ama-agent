@@ -25,8 +25,11 @@ judge_logger.setLevel(logging.DEBUG)  # Change to INFO to reduce verbosity
 # === Your app pieces ===
 from ..bedrock_client import BedrockClient
 from ..agent import RAGAgent
+from ..domain_judge import DomainJudge
 from ..embeddings import Embeddings
 from ..rank_fusion import RankFusion
+from ..reranker import CrossEncoderReranker
+from ..confidence_checker import ConfidenceChecker
 from ..prompt_templates import (
     # Query prompts
     GENERATE_QUERIES_PROMPT,
@@ -628,24 +631,42 @@ class RAGPipelineApp:
     agent: object
     retriever: object
     fusion: object
+    reranker: object = None
+    checker: object = None
     top_k: int = 10
+    rerank_top_n: int = 10
     last_contexts: List[str] = field(default_factory=list)
+    last_confidence_features: Dict[str, Any] = field(default_factory=dict)
 
-    def retrieve(self, question: str, user_roles, headings) -> List[str]:
+    def retrieve(self, question: str, headings) -> List[str]:
         queries = self.agent.generate_queries(question)
         retrieved_docs = self.retriever.retrieve_documents(
-            queries, user_roles, headings, top_k=self.top_k
+            queries, headings, top_k=self.top_k
         )
         fused_docs = self.fusion.reciprocal_rank_fusion(retrieved_docs)
-        contexts = _normalize_context_texts(fused_docs)
+
+        # Cross-encoder re-rank + confidence feature logging
+        if self.reranker is not None:
+            reranked = self.reranker.rerank(
+                question, fused_docs, top_n=self.rerank_top_n
+            )
+            if self.checker is not None:
+                _, self.last_confidence_features = self.checker.evaluate(reranked)
+            else:
+                self.last_confidence_features = {}
+            contexts = [chunk.text for chunk in reranked]
+        else:
+            self.last_confidence_features = {}
+            contexts = _normalize_context_texts(fused_docs)
+
         self.last_contexts = contexts
         return contexts
 
     def generate(self, question: str, contexts: List[str]) -> str:
         return self.agent.generate_answer(question, contexts)
 
-    def query(self, question: str, user_roles, headings) -> str:
-        ctx = self.retrieve(question, user_roles, headings)
+    def query(self, question: str, headings) -> str:
+        ctx = self.retrieve(question, headings)
         return self.generate(question, ctx)
 
 
@@ -725,34 +746,29 @@ def main():
     TEMPERATURE_VALUES = [0.0, 0.3, 0.7]
     CONTEXT_LIMIT_VALUES = [3, 5, 10]
 
-    # Base configurations for user roles/headings
+    # Base configurations for headings
     BASE_CONFIGS = [
         {
-            "user_roles": ["engineer"],
             "headings": ["PUBLIC"],
             "questions_file": "src/evaluation/questions_short_public.csv",
         },
         {
-            "user_roles": ["engineer"],
             "headings": ["PUBLIC"],
             "questions_file": "src/evaluation/questions_short_public_de.csv",
         },
         # {
-        #     "user_roles": ["engineer"],
         #     "headings": ["PUBLIC", "CONFIDENTIAL"],
         #     "questions_file": "src/evaluation/questions_short_confidential.csv",
         # },
-        # {
-        #     "user_roles": ["engineer"],
-        #     "headings": ["PUBLIC", "CONFIDENTIAL"],
-        #     "questions_file": "src/evaluation/questions_short_confidential_de.csv",
-        # },
+        {
+            "headings": ["PUBLIC", "CONFIDENTIAL"],
+            "questions_file": "src/evaluation/questions_short_confidential_de.csv",
+        },
 ]
 
     # Generate all combinations of prompts and retrieval/generation params
     experiments = []
     for base_config in BASE_CONFIGS:
-        roles_str = "_".join(base_config["user_roles"])
         headings_str = "_".join(h.lower() for h in base_config["headings"])
         
         for query_name, query_prompt in QUERY_PROMPTS.items():
@@ -762,13 +778,12 @@ def main():
                         for temperature in TEMPERATURE_VALUES:
                             for context_limit in CONTEXT_LIMIT_VALUES:
                                 exp_name = (
-                                    f"{roles_str}_{headings_str}"
+                                    f"{headings_str}"
                                     f"_q_{query_name}_a_{answer_name}_j_{judge_name}"
                                     f"_k{top_k}_t{temperature}_cl{context_limit}"
                                 )
                                 experiments.append({
                                     "name": exp_name,
-                                    "user_roles": base_config["user_roles"],
                                     "headings": base_config["headings"],
                                     "questions_file": base_config["questions_file"],
                                     "generate_queries_prompt": query_prompt,
@@ -815,6 +830,8 @@ def main():
     my_bedrock_client = BedrockClient()
     retriever = Embeddings()
     fusion = RankFusion()
+    _reranker = CrossEncoderReranker()
+    _checker = ConfidenceChecker()
 
     # Use a single judge model for all systems-under-test
     judge_model_id = "openai.gpt-oss-120b-1:0"
@@ -842,11 +859,6 @@ def main():
         contextual_precision,
     ]
 
-    all_outputs = []  # for JSON
-    all_rows = []     # for CSV
-    completed_keys = set()  # (experiment, model_id, question) tuples already evaluated
-
-    # ---- Resume: load existing results if files exist ----
     CSV_FIELDNAMES = [
         "experiment", "questions_file", "model_id",
         "query_prompt", "answer_prompt", "judge_prompt",
@@ -854,46 +866,76 @@ def main():
         "question", "faithfulness_score", "answer_relevancy_score",
         "contextual_relevancy_score", "contextual_recall_score",
         "contextual_precision_score", "num_context_chunks",
+        # Confidence gate features (for threshold calibration)
+        "gate_confident", "gate_num_chunks", "gate_num_unique_chunks",
+        "gate_total_chars", "gate_top1_relevance", "gate_avg_top3_relevance",
     ]
 
-    if os.path.isfile(args.csv):
-        try:
-            with open(args.csv, "r", newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    # Normalise numeric fields back from strings
-                    for score_col in (
-                        "faithfulness_score", "answer_relevancy_score",
-                        "contextual_relevancy_score", "contextual_recall_score",
-                        "contextual_precision_score",
-                    ):
-                        val = row.get(score_col, "")
-                        row[score_col] = float(val) if val not in ("", None) else None
-                    nc = row.get("num_context_chunks", "")
-                    row["num_context_chunks"] = int(nc) if nc not in ("", None) else 0
+    # ---- Per-questions-file state (separate CSV + JSON per file) ----
+    _file_state: dict[str, dict] = {}
 
-                    all_rows.append(row)
-                    completed_keys.add(
-                        (row["experiment"], row["model_id"], row["question"])
-                    )
-            logger.info(
-                f"Resumed {len(all_rows)} existing rows from {args.csv} "
-                f"({len(completed_keys)} unique experiment/model/question combos)"
-            )
-        except Exception as exc:
-            logger.warning(f"Could not load existing CSV for resume ({exc}); starting fresh.")
-            all_rows.clear()
-            completed_keys.clear()
+    def _output_paths(questions_file: str):
+        """Derive per-questions-file output CSV/JSON paths."""
+        stem = os.path.splitext(os.path.basename(questions_file))[0]
+        suffix = stem.replace("questions_", "", 1)
+        csv_base = os.path.splitext(args.csv)[0]
+        json_base = os.path.splitext(args.json)[0]
+        return f"{csv_base}_{suffix}.csv", f"{json_base}_{suffix}.json"
 
-    if os.path.isfile(args.json):
-        try:
-            with open(args.json, "r", encoding="utf-8") as f:
-                all_outputs = json.load(f)
-            logger.info(f"Resumed {len(all_outputs)} existing pipeline outputs from {args.json}")
-        except Exception as exc:
-            logger.warning(f"Could not load existing JSON for resume ({exc}); starting fresh.")
-            all_outputs = []
-    # ---- End resume loading ----
+    def _get_file_state(questions_file: str) -> dict:
+        """Get or lazily initialise (with resume) the state for a questions file."""
+        if questions_file in _file_state:
+            return _file_state[questions_file]
+
+        csv_path, json_path = _output_paths(questions_file)
+        state: dict = {
+            "rows": [],
+            "outputs": [],
+            "completed": set(),
+            "csv": csv_path,
+            "json": json_path,
+        }
+
+        if os.path.isfile(csv_path):
+            try:
+                with open(csv_path, "r", newline="", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        for score_col in (
+                            "faithfulness_score", "answer_relevancy_score",
+                            "contextual_relevancy_score", "contextual_recall_score",
+                            "contextual_precision_score",
+                        ):
+                            val = row.get(score_col, "")
+                            row[score_col] = float(val) if val not in ("", None) else None
+                        nc = row.get("num_context_chunks", "")
+                        row["num_context_chunks"] = int(nc) if nc not in ("", None) else 0
+
+                        state["rows"].append(row)
+                        state["completed"].add(
+                            (row["experiment"], row["model_id"], row["question"])
+                        )
+                logger.info(
+                    f"Resumed {len(state['rows'])} existing rows from {csv_path} "
+                    f"({len(state['completed'])} unique experiment/model/question combos)"
+                )
+            except Exception as exc:
+                logger.warning(f"Could not load existing CSV {csv_path} for resume ({exc}); starting fresh.")
+                state["rows"].clear()
+                state["completed"].clear()
+
+        if os.path.isfile(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    state["outputs"] = json.load(f)
+                logger.info(f"Resumed {len(state['outputs'])} existing pipeline outputs from {json_path}")
+            except Exception as exc:
+                logger.warning(f"Could not load existing JSON {json_path} for resume ({exc}); starting fresh.")
+                state["outputs"] = []
+
+        _file_state[questions_file] = state
+        return state
+    # ---- End per-file state ----
 
     # Helper to load questions for a given experiment
     def load_dataset(path: str):
@@ -920,7 +962,6 @@ def main():
     # ----------------- loop over experiments -----------------
     for experiment in experiments:
         exp_name = experiment["name"]
-        user_roles = experiment["user_roles"]
         headings = experiment["headings"]
         questions_file = experiment["questions_file"]
         
@@ -956,7 +997,7 @@ def main():
         exp_context_limit = experiment.get("context_limit", 5)
 
         logger.info(
-            f"Running experiment '{exp_name}' with roles={user_roles} "
+            f"Running experiment '{exp_name}' with "
             f"headings={headings} questions_file={questions_file} "
             f"query_prompt={query_prompt_name} answer_prompt={answer_prompt_name} judge_prompt={judge_prompt_name} "
             f"top_k={exp_top_k} temperature={exp_temperature} context_limit={exp_context_limit}"
@@ -977,6 +1018,9 @@ def main():
             )
             continue
 
+        # Get per-questions-file state (resume-aware)
+        fstate = _get_file_state(questions_file)
+
         # Run evaluation for each model separately, per experiment
         for gen_model_id in model_ids:
             logger.info(
@@ -991,20 +1035,21 @@ def main():
                 context_limit=exp_context_limit,
                 generate_queries_prompt=exp_generate_queries_prompt,
                 generate_answer_prompt=exp_generate_answer_prompt,
-                judge_question_domain_prompt=exp_judge_question_domain_prompt,
             )
             app = RAGPipelineApp(
                 agent=agent, retriever=retriever, fusion=fusion,
+                reranker=_reranker, checker=_checker,
                 top_k=exp_top_k,
             )
 
             test_cases: List[LLMTestCase] = []
             model_outputs = []
+            _confidence_features_by_question: Dict[str, Dict[str, Any]] = {}
 
             # Check how many questions are already done for this model+experiment
             pending_questions = [
                 item for item in dataset
-                if (exp_name, gen_model_id, item["question"]) not in completed_keys
+                if (exp_name, gen_model_id, item["question"]) not in fstate["completed"]
             ]
             if not pending_questions:
                 logger.info(
@@ -1024,8 +1069,9 @@ def main():
                 expected_ans = item["expected_answer"]
 
                 print(q)
-                answer = app.query(q, user_roles, headings)
+                answer = app.query(q, headings)
                 contexts = app.last_contexts or []
+                _confidence_features_by_question[q] = app.last_confidence_features.copy()
 
                 logger.info(
                     f"[CASE] experiment={exp_name} model={gen_model_id} "
@@ -1038,7 +1084,6 @@ def main():
                     "experiment": exp_name,
                     "questions_file": questions_file,
                     "model_id": gen_model_id,
-                    "user_roles": user_roles,
                     "headings": headings,
                     "query_prompt": query_prompt_name,
                     "answer_prompt": answer_prompt_name,
@@ -1062,7 +1107,7 @@ def main():
                 )
                 time.sleep(0.05)
 
-            all_outputs.extend(model_outputs)
+            fstate["outputs"].extend(model_outputs)
 
             if not test_cases:
                 logger.info(f"No new test cases for model={gen_model_id} experiment={exp_name}. Skipping eval.")
@@ -1186,6 +1231,9 @@ def main():
 
                 time.sleep(0.25)
 
+                # Look up confidence features logged during retrieval
+                cf = _confidence_features_by_question.get(case.input, {})
+
                 new_row = {
                     "experiment": exp_name,
                     "questions_file": questions_file,
@@ -1203,36 +1251,44 @@ def main():
                     "contextual_recall_score": contextual_recall_score,
                     "contextual_precision_score": contextual_precision_score,
                     "num_context_chunks": len(case.retrieval_context or []),
+                    # Confidence gate features
+                    "gate_confident": cf.get("reason") == "ok",
+                    "gate_num_chunks": cf.get("num_chunks"),
+                    "gate_num_unique_chunks": cf.get("num_unique_chunks"),
+                    "gate_total_chars": cf.get("total_chars"),
+                    "gate_top1_relevance": cf.get("top1_relevance"),
+                    "gate_avg_top3_relevance": cf.get("avg_top3_relevance"),
                 }
-                all_rows.append(new_row)
-                completed_keys.add((exp_name, gen_model_id, case.input))
+                fstate["rows"].append(new_row)
+                fstate["completed"].add((exp_name, gen_model_id, case.input))
 
                 # Incremental save after each question so a crash loses at most 1 question
-                with open(args.csv, "w", newline="", encoding="utf-8") as f:
+                with open(fstate["csv"], "w", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
                     writer.writeheader()
-                    writer.writerows(all_rows)
-                with open(args.json, "w", encoding="utf-8") as f:
-                    json.dump(all_outputs, f, ensure_ascii=False, indent=2)
+                    writer.writerows(fstate["rows"])
+                with open(fstate["json"], "w", encoding="utf-8") as f:
+                    json.dump(fstate["outputs"], f, ensure_ascii=False, indent=2)
 
         # Log progress after each experiment
         logger.info(
-            f"Saved intermediate results ({len(all_rows)} total rows) "
-            f"to {args.csv} (experiment: {exp_name})"
+            f"Saved intermediate results ({len(fstate['rows'])} total rows) "
+            f"to {fstate['csv']} (experiment: {exp_name})"
         )
 
     # ----------------- end experiments loop -----------------
 
-    # Final save (redundant but confirms completion)
-    with open(args.csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
-        writer.writeheader()
-        writer.writerows(all_rows)
-    logger.info(f"Saved DeepEval metric results to {args.csv} ({len(all_rows)} rows)")
+    # Final save per questions file (redundant but confirms completion)
+    for qf, st in _file_state.items():
+        with open(st["csv"], "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(st["rows"])
+        logger.info(f"Saved DeepEval metric results to {st['csv']} ({len(st['rows'])} rows)")
 
-    with open(args.json, "w", encoding="utf-8") as f:
-        json.dump(all_outputs, f, ensure_ascii=False, indent=2)
-    logger.info(f"Saved pipeline outputs to {args.json} ({len(all_outputs)} entries)")
+        with open(st["json"], "w", encoding="utf-8") as f:
+            json.dump(st["outputs"], f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved pipeline outputs to {st['json']} ({len(st['outputs'])} entries)")
 
     logger.info("Evaluation complete!")
 
