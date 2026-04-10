@@ -40,16 +40,14 @@ class Embeddings:
     def retrieve_documents(
         self,
         queries: list[str] | str,
-        user_roles: list[str],
         headings: list[str] | None = None,
         top_k: int = 10
     ) -> list:
         """
-        Retrieve up to top_k chunks per query, filtered by user_roles and optional headings.
+        Retrieve up to top_k chunks per query, filtered by optional headings.
 
         queries: list of search strings (or a newline-separated string for backwards compat).
-        user_roles: roles of the current user.
-        headings: optional list of headings to restrict to (e.g., ["Section 1", "default"]).
+        headings: optional list of headings to restrict to (e.g., ["PUBLIC", "CONFIDENTIAL"]).
         top_k: number of results per query.
         Returns: flat list of matching Document chunks.
         """
@@ -58,15 +56,10 @@ class Embeddings:
         else:
             query_list = queries
 
-        # Build a list of your individual filters
-        filters = [
-            {"allowed_roles": {"$in": user_roles}}
-        ]
+        # Build filter for headings only
+        combined_filter = None
         if headings is not None:
-            filters.append({"heading": {"$in": headings}})
-
-        # Wrap them in a single '$and'
-        combined_filter = {"$and": filters}
+            combined_filter = {"heading": {"$in": headings}}
 
 
         all_results: list[list] = []
