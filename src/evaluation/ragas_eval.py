@@ -25,7 +25,7 @@ judge_logger.setLevel(logging.DEBUG)  # Change to INFO to reduce verbosity
 # === Your app pieces ===
 from ..bedrock_client import BedrockClient
 from ..agent import RAGAgent
-from ..domain_judge import DomainJudge
+from ..domain_judge import DEFAULT_JUDGE_MODEL_ID, DomainJudge
 from ..embeddings import Embeddings
 from ..rank_fusion import RankFusion
 from ..reranker import CrossEncoderReranker
@@ -1035,7 +1035,7 @@ def main():
             )
             _domain_judge = DomainJudge(
                 my_bedrock_client,
-                gen_model_id,
+                DEFAULT_JUDGE_MODEL_ID,
                 prompt_template=exp_judge_question_domain_prompt,
             )
             app = RAGPipelineApp(
