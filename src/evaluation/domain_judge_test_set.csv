@@ -1,0 +1,23 @@
+question,expected_in_domain,category
+What are the legal criteria for 3rd party software?,True,in_domain
+Which programming languages do we use?,True,in_domain
+What are the central frameworks?,True,in_domain
+What are internal and external audits and how do they differ?,True,in_domain
+How is technical debt tracked and managed at virtualQ?,True,in_domain
+How does the virtualQ system scale for performance and new locations?,True,in_domain
+How are speech recognition and intent recognition used in the system?,True,in_domain
+How is the build and deployment process organized?,True,in_domain
+What is Mobile Device Management and how is it used?,True,in_domain
+What machine learning algorithms are used in the forecasting engine?,True,in_domain
+Which different optimizers are offered by virtualQ and what do they do?,True,in_domain
+What is the capital of France?,False,out_of_domain_general_knowledge
+Who wrote the novel 1984?,False,out_of_domain_general_knowledge
+What is the speed of light?,False,out_of_domain_general_knowledge
+What are Genesys Cloud's main features?,False,out_of_domain_other_company
+How does Five9 compare to NICE inContact?,False,out_of_domain_other_company
+Explain quantum computing in simple terms,False,out_of_domain_general_knowledge
+What are the best Python web frameworks?,False,out_of_domain_general_tech
+How do I make a chocolate cake?,False,out_of_domain_general_knowledge
+What are WebSockets used for?,False,out_of_domain_general_tech
+Explain Kubernetes pod scheduling,False,out_of_domain_general_tech
+What is the difference between TCP and UDP?,False,out_of_domain_general_tech
