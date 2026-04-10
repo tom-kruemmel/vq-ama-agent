@@ -6,6 +6,9 @@ from .prompt_templates import JUDGE_QUESTION_DOMAIN_PROMPT
 
 logger = logging.getLogger(__name__)
 
+# Best-performing judge model based on evaluation (F1 0.778 in-domain / 0.846 out-of-domain)
+DEFAULT_JUDGE_MODEL_ID = "qwen.qwen3-235b-a22b-2507-v1:0"
+
 # Default domain description for virtualQ
 _DEFAULT_DOMAIN_DESC = (
     "Questions specifically about the telephony company virtualQ and its technology stack. "
@@ -24,7 +27,7 @@ class DomainJudge:
     def __init__(
         self,
         bedrock_client: BedrockClient,
-        model_id: str,
+        model_id: str = DEFAULT_JUDGE_MODEL_ID,
         prompt_template: str = JUDGE_QUESTION_DOMAIN_PROMPT,
         domain_desc: str = _DEFAULT_DOMAIN_DESC,
     ):

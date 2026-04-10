@@ -5,7 +5,7 @@ import typer
 
 from .bedrock_client import BedrockClient
 from .agent import RAGAgent
-from .domain_judge import DomainJudge
+from .domain_judge import DEFAULT_JUDGE_MODEL_ID, DomainJudge
 from .embeddings import Embeddings
 from .rank_fusion import RankFusion
 from .pdf_persister import PdfPersister
@@ -36,7 +36,8 @@ def cli():
     model_id = os.getenv("BEDROCK_MODEL_ID")
     bedrock = BedrockClient()
     agent = RAGAgent(bedrock, model_id)
-    domain_judge = DomainJudge(bedrock, model_id)
+    judge_model_id = os.getenv("JUDGE_MODEL_ID", DEFAULT_JUDGE_MODEL_ID)
+    domain_judge = DomainJudge(bedrock, judge_model_id)
     validator = RoleAssignerValidator(directory="data/confluence_pdfs")
     validator.validate_pdfs()
     persister = PdfPersister(directory="data/confluence_pdfs", heading_list=RoleAssignerValidator.heading_list, chunk_size=500, chunk_overlap=100)
