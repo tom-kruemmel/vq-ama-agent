@@ -137,5 +137,6 @@ def run_pipeline(
     result.contexts = context_texts
     result.answer = agent.generate_answer(
         question, context_texts, chat_history=chat_history, language=language,
+        domain_desc=domain_judge.domain_desc if domain_judge is not None else "",
     )
     return result

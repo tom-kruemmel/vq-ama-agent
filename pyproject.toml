@@ -46,4 +46,5 @@ pytest-cov = "^6.0"
 [tool.poetry.scripts]
 vq-ama-agent = "src.main:cli"
 evaluate-rag = "src.evaluation.ragas_eval:main"
+evaluate-domain-judge = "src.evaluation.evaluate_domain_judge:main"
 visualize-deepeval-results = "src.evaluation.visualize_deepeval:main"

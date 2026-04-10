@@ -64,6 +64,7 @@ class RAGAgent:
         context_docs: list[ScoredChunk] | list[str],
         chat_history: str = "",
         language: str = "English",
+        domain_desc: str = "",
     ) -> str:
         context_texts = [
             doc.text if isinstance(doc, ScoredChunk) else (doc[0] if isinstance(doc, tuple) else doc)
@@ -71,7 +72,7 @@ class RAGAgent:
         ]
         context = "\n\n".join(context_texts)
         answer_prompt = self.generate_answer_prompt.format(
-            context=context, question=question, chat_history=chat_history, language=language
+            context=context, question=question, chat_history=chat_history, language=language, domain_desc=domain_desc
         )
         return self.answer_question(answer_prompt)
 

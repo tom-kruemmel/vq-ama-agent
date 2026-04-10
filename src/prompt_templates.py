@@ -48,6 +48,10 @@ User's question: {question}
 
 # Q/A Style: Terse, fact-focused
 GENERATE_ANSWER_PROMPT = """
+You are an assistant for the following domain:
+{domain_desc}
+Answer questions accordingly, staying within this domain's scope.
+
 Conversation so far:
 {chat_history}
 
@@ -64,6 +68,10 @@ Answer:
 
 # Conversational Style
 GENERATE_ANSWER_CONVERSATIONAL = """
+You are an assistant for the following domain:
+{domain_desc}
+Answer questions accordingly, staying within this domain's scope.
+
 Conversation so far:
 {chat_history}
 
@@ -74,13 +82,18 @@ Information:
 
 User's question: {question}
 
+IMPORTANT: You MUST reply in {language}.
+
+
 Response:
 """
 
 # Instruction Block Style (enterprise)
 GENERATE_ANSWER_INSTRUCTION_BLOCK = """
 [SYSTEM]
-You are a technical documentation assistant. You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
+You are a technical documentation assistant for the following domain:
+{domain_desc}
+Answer questions accordingly, staying within this domain's scope. You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
 
 [CONVERSATION HISTORY]
 {chat_history}
@@ -91,6 +104,9 @@ You are a technical documentation assistant. You must ONLY use information from 
 [QUESTION]
 {question}
 
+IMPORTANT: You MUST reply in {language}.
+
+
 [ANSWER]
 """
 
@@ -98,6 +114,10 @@ You are a technical documentation assistant. You must ONLY use information from 
 
 # Uncertainty-Aware
 GENERATE_ANSWER_UNCERTAINTY_AWARE = """
+You are an assistant for the following domain:
+{domain_desc}
+Answer questions accordingly, staying within this domain's scope.
+
 Conversation so far:
 {chat_history}
 
@@ -111,11 +131,18 @@ Provide your answer with explicit confidence indicators. Use the conversation hi
 - For any gaps, explicitly say "Not enough information in the provided documents to determine..."
 - Never guess or fabricate details
 
+IMPORTANT: You MUST reply in {language}.
+
+
 Answer:
 """
 
 # Full Chain-of-Thought
 GENERATE_ANSWER_FULL_COT = """
+You are an assistant for the following domain:
+{domain_desc}
+Answer questions accordingly, staying within this domain's scope.
+
 Conversation so far:
 {chat_history}
 
@@ -130,6 +157,9 @@ Think through this step-by-step (use the conversation history to resolve pronoun
 3. What can we conclude?
 
 Then provide your final answer clearly labeled.
+
+IMPORTANT: You MUST reply in {language}.
+
 
 Reasoning and Answer:
 """
