@@ -19,7 +19,6 @@ class PdfPersister:
     def __init__(
         self,
         directory: str,
-        role_map: dict[str, list[str]],
         heading_list: list[str] | None = None,
         default_heading: str = "PUBLIC",
         chunk_size: int = 1000,
@@ -28,12 +27,10 @@ class PdfPersister:
         """
         Args:
             directory: folder containing your PDFs.
-            role_map: mapping from PDF-filename → list of roles allowed.
-            heading_role_map: optional mapping from PDF-filename → list of headings to track.
+            heading_list: optional list of headings to track (e.g. ["PUBLIC", "CONFIDENTIAL"]).
             default_heading: label to use when no heading context applies.
         """
         self.loader = PyPDFDirectoryLoader(directory) # UnstructuredPDFLoader(directory, mode="single") 
-        self.role_map = role_map
         self.heading_list= heading_list or []
         self.default_heading = default_heading
         self.chunk_size = chunk_size
@@ -77,10 +74,10 @@ class PdfPersister:
         manifest = self._load_manifest()
         return current_hash != manifest.get("directory_hash")
 
-    def generate_doc_id(self, text: str, role: str, heading: str) -> str:
-        # unique per text + role + heading
+    def generate_doc_id(self, text: str, heading: str) -> str:
+        # unique per text + heading
         return md5(
-            text.encode("utf-8") + role.encode("utf-8") + heading.encode("utf-8")
+            text.encode("utf-8") + heading.encode("utf-8")
         ).hexdigest()
 
     def merge_docs(self, raw_docs: list) -> list:
@@ -116,26 +113,23 @@ class PdfPersister:
 
         for doc in merged_docs:
             fname = os.path.basename(doc.metadata["source"])
-            roles = sorted(self.role_map.get(fname, []))
             headings = self.heading_list
 
-            # if headings configured but none appear, emit whole page per role
+            # if headings configured but none appear, emit whole page with default heading
             if headings and not any(h in doc.page_content for h in headings):
-                for role in roles:
-                    chunk = copy.deepcopy(doc)
-                    chunk.metadata.update({
-                        "allowed_roles": role,
-                        "heading": self.default_heading,
-                        "doc_id": self.generate_doc_id(chunk.page_content, role, self.default_heading)
-                    })
-                    all_chunks.append(chunk)
+                chunk = copy.deepcopy(doc)
+                chunk.metadata.update({
+                    "heading": self.default_heading,
+                    "doc_id": self.generate_doc_id(chunk.page_content, self.default_heading)
+                })
+                all_chunks.append(chunk)
                 continue
 
             paragraphs = doc.page_content.split("\n\n")
             current_heading = self.default_heading
 
             def _emit_text_as_chunks(text, heading):
-                """Split large text if needed, then emit one chunk per role with given heading."""
+                """Split large text if needed, then emit one chunk with given heading."""
                 # Skip junk chunks (page numbers, TOC stubs, etc.)
                 if len(text.strip()) < 50:
                     return
@@ -155,14 +149,11 @@ class PdfPersister:
                     subchunks[0].page_content = prefixed_text
 
                 for chunk in subchunks:
-                    for role in roles:
-                        c = copy.deepcopy(chunk)
-                        c.metadata.update({
-                            "allowed_roles": role,
-                            "heading": heading,
-                            "doc_id": self.generate_doc_id(c.page_content, role, heading)
-                        })
-                        all_chunks.append(c)
+                    chunk.metadata.update({
+                        "heading": heading,
+                        "doc_id": self.generate_doc_id(chunk.page_content, heading)
+                    })
+                    all_chunks.append(chunk)
 
             def _find_next_heading(text):
                 """Return (idx, heading) for earliest heading occurrence in text, else (None, None)."""

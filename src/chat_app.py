@@ -153,7 +153,6 @@ CHAT_HTML = """
 def create_app(
     agent: RAGAgent,
     domain_judge: DomainJudge,
-    user_roles: list[str],
     headings: list[str],
     retriever: Embeddings | None = None,
     fusion: RankFusion | None = None,
@@ -204,7 +203,7 @@ def create_app(
                 msg = "I can help with questions about virtualQ and its technology stack. Please ask a question related to that."
             return jsonify({'answer': msg})
         queries = agent.generate_queries(question)
-        retrieved_docs = _retriever.retrieve_documents(queries, user_roles, headings)
+        retrieved_docs = _retriever.retrieve_documents(queries, headings)
         fused_docs_with_scores = _fusion.reciprocal_rank_fusion(retrieved_docs)
         fused_docs = [chunk.text for chunk in fused_docs_with_scores]
 
@@ -233,7 +232,6 @@ def create_app(
 def run_chat_server(
     agent: RAGAgent,
     domain_judge: DomainJudge,
-    user_roles: list[str],
     headings: list[str],
     host: str = '127.0.0.1',
     port: int = 8000,
@@ -245,7 +243,7 @@ def run_chat_server(
   Launches the chat web server on localhost.
   """
   app = create_app(
-    agent, domain_judge, user_roles, headings,
+    agent, domain_judge, headings,
     retriever=retriever,
     fusion=fusion,
     confidence_checker=confidence_checker,
