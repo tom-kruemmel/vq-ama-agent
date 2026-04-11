@@ -1,7 +1,8 @@
 """Evaluate the domain judge on a labelled test set.
 
-Runs each question through DomainJudge with one or more prompt templates,
-then reports precision / recall / F1 and plots score histograms.
+Runs each question through DomainJudge with one or more prompt templates
+and one or more models, then reports precision / recall / F1 and plots
+score histograms.
 
 Usage:
     poetry run python -m src.evaluation.evaluate_domain_judge \
@@ -16,7 +17,12 @@ Usage:
     # Specific model:
     poetry run python -m src.evaluation.evaluate_domain_judge \
         --test-set src/evaluation/domain_judge_test_set.csv \
-        --model eu.amazon.nova-lite-v1:0
+        --models eu.amazon.nova-lite-v1:0
+
+    # Compare multiple models:
+    poetry run python -m src.evaluation.evaluate_domain_judge \
+        --test-set src/evaluation/domain_judge_test_set.csv \
+        --models eu.amazon.nova-lite-v1:0 qwen.qwen3-235b-a22b-2507-v1:0
 """
 
 from __future__ import annotations
@@ -216,8 +222,8 @@ def plot_threshold_f1(df: pd.DataFrame, prompt_name: str, outdir: Path) -> None:
 
 # ── Cross-prompt comparison ──────────────────────────────────────────────────
 
-def plot_comparison(all_results: dict[str, pd.DataFrame], outdir: Path) -> None:
-    """Bar chart comparing F1 across prompt variants."""
+def plot_comparison(all_results: dict[str, pd.DataFrame], outdir: Path, title_suffix: str = "") -> None:
+    """Bar chart comparing F1 across prompt variants (or model×prompt combos)."""
     if len(all_results) < 2:
         return
 
@@ -240,20 +246,21 @@ def plot_comparison(all_results: dict[str, pd.DataFrame], outdir: Path) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=15, ha="right")
     ax.set_ylabel("F1 score")
-    ax.set_title("Domain judge prompt comparison")
+    ax.set_title(f"Domain judge comparison{title_suffix}")
     ax.set_ylim(0, 1.05)
     ax.legend()
     ax.grid(axis="y", linewidth=0.3)
 
     fig.tight_layout()
-    fname = outdir / "prompt_comparison_f1.png"
+    suffix = f"_{_sanitize(title_suffix)}" if title_suffix else ""
+    fname = outdir / f"comparison_f1{suffix}.png"
     fig.savefig(fname, dpi=200)
     plt.close(fig)
-    print(f"\n  -> Saved prompt comparison to {fname}")
+    print(f"\n  -> Saved comparison to {fname}")
 
     # Also save a summary CSV
-    summary = pd.DataFrame({"prompt": names, "f1_in_domain": f1_in, "f1_out_of_domain": f1_out})
-    summary.to_csv(outdir / "prompt_comparison_summary.csv", index=False)
+    summary = pd.DataFrame({"variant": names, "f1_in_domain": f1_in, "f1_out_of_domain": f1_out})
+    summary.to_csv(outdir / f"comparison_summary{suffix}.csv", index=False)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -277,12 +284,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--prompts", nargs="*", default=None,
-        help="Prompt variants to evaluate (default: all). "
+        help="Prompt variants to evaluate (default: 'default' only). "
              f"Choose from: {', '.join(PROMPT_VARIANTS)}",
     )
     parser.add_argument(
+        "--models", nargs="*", default=None,
+        help="One or more Bedrock model IDs to evaluate. "
+             "When multiple are given the results are compared side-by-side.",
+    )
+    parser.add_argument(
         "--model", type=str, default=None,
-        help="Bedrock model ID for the judge (default: auto-pick from env).",
+        help="(deprecated, use --models) Single Bedrock model ID.",
     )
     parser.add_argument(
         "--min-score", type=float, default=0.60,
@@ -300,7 +312,7 @@ def main() -> None:
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     # Determine which prompts to run
-    prompt_names = args.prompts or list(PROMPT_VARIANTS.keys())
+    prompt_names = args.prompts or list(PROMPT_VARIANTS)
     invalid = set(prompt_names) - set(PROMPT_VARIANTS)
     if invalid:
         sys.exit(f"ERROR: Unknown prompt variants: {invalid}. Choose from: {list(PROMPT_VARIANTS)}")
@@ -311,34 +323,62 @@ def main() -> None:
     n_out = len(test_set) - n_in
     print(f"Loaded {len(test_set)} questions ({n_in} in-domain, {n_out} out-of-domain)")
 
+    # Resolve model list
+    model_ids: list[str] = []
+    if args.models:
+        model_ids = args.models
+    elif args.model:
+        model_ids = [args.model]
+    else:
+        model_ids = [os.getenv("JUDGE_MODEL_ID", "qwen.qwen3-235b-a22b-2507-v1:0")]
+
+    multi_model = len(model_ids) > 1
+    print(f"Models to evaluate: {model_ids}")
+
     # Init Bedrock client
     bedrock = BedrockClient()
-    model_id = args.model or os.getenv("JUDGE_MODEL_ID", "qwen.qwen3-235b-a22b-2507-v1:0")
-    print(f"Using model: {model_id}")
 
-    # Run each prompt variant
+    # Collect results keyed by "model / prompt"
     all_results: dict[str, pd.DataFrame] = {}
 
-    for prompt_name in prompt_names:
-        print(f"\n{'─' * 60}")
-        print(f"Running prompt variant: {prompt_name}")
-        print(f"{'─' * 60}")
+    for model_id in model_ids:
+        model_short = model_id.split(":")[0].rsplit(".", 1)[-1]  # short label
+        model_outdir = args.outdir / _sanitize(model_short) if multi_model else args.outdir
+        model_outdir.mkdir(parents=True, exist_ok=True)
 
-        judge = DomainJudge(
-            bedrock_client=bedrock,
-            model_id=model_id,
-            prompt_template=PROMPT_VARIANTS[prompt_name],
-        )
+        print(f"\n{'═' * 60}")
+        print(f"Model: {model_id}")
+        print(f"{'═' * 60}")
 
-        df = run_judge(test_set, judge, min_score=args.min_score, sleep=args.sleep)
-        all_results[prompt_name] = df
+        per_prompt_results: dict[str, pd.DataFrame] = {}
 
-        print_and_save_report(df, prompt_name, args.outdir)
-        plot_score_histogram(df, prompt_name, args.outdir)
-        plot_threshold_f1(df, prompt_name, args.outdir)
+        for prompt_name in prompt_names:
+            print(f"\n{'─' * 60}")
+            print(f"Running prompt variant: {prompt_name}")
+            print(f"{'─' * 60}")
 
-    # Cross-prompt comparison
-    plot_comparison(all_results, args.outdir)
+            judge = DomainJudge(
+                bedrock_client=bedrock,
+                model_id=model_id,
+                prompt_template=PROMPT_VARIANTS[prompt_name],
+            )
+
+            label = f"{model_short} / {prompt_name}" if multi_model else prompt_name
+            df = run_judge(test_set, judge, min_score=args.min_score, sleep=args.sleep)
+            per_prompt_results[prompt_name] = df
+            all_results[label] = df
+
+            save_label = f"{_sanitize(model_short)}_{prompt_name}" if multi_model else prompt_name
+            print_and_save_report(df, save_label, model_outdir)
+            plot_score_histogram(df, save_label, model_outdir)
+            plot_threshold_f1(df, save_label, model_outdir)
+
+        # Per-model prompt comparison (when multiple prompts)
+        plot_comparison(per_prompt_results, model_outdir, title_suffix=f" — {model_short}")
+
+    # Cross-model comparison (when multiple models)
+    if multi_model:
+        plot_comparison(all_results, args.outdir, title_suffix=" — all models")
 
     print(f"\nAll outputs saved to: {args.outdir.resolve()}")
 

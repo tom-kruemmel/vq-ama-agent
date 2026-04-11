@@ -749,10 +749,10 @@ def main():
             "headings": ["PUBLIC"],
             "questions_file": "src/evaluation/questions_short_public_de.csv",
         },
-        # {
-        #     "headings": ["PUBLIC", "CONFIDENTIAL"],
-        #     "questions_file": "src/evaluation/questions_short_confidential.csv",
-        # },
+        {
+            "headings": ["PUBLIC", "CONFIDENTIAL"],
+            "questions_file": "src/evaluation/questions_short_confidential.csv",
+        },
         {
             "headings": ["PUBLIC", "CONFIDENTIAL"],
             "questions_file": "src/evaluation/questions_short_confidential_de.csv",
