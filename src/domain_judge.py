@@ -2,11 +2,11 @@ import json
 import logging
 
 from .bedrock_client import BedrockClient
-from .prompt_templates import JUDGE_QUESTION_DOMAIN_PROMPT
+from .prompt_templates import JUDGE_DOMAIN_TWO_STAGE
 
 logger = logging.getLogger(__name__)
 
-# Best-performing judge model based on evaluation (F1 0.778 in-domain / 0.846 out-of-domain)
+# Best-performing judge model based on evaluation (F1 0.857 in-domain / 0.870 out-of-domain)
 DEFAULT_JUDGE_MODEL_ID = "qwen.qwen3-235b-a22b-2507-v1:0"
 
 # Default domain description for virtualQ
@@ -28,7 +28,7 @@ class DomainJudge:
         self,
         bedrock_client: BedrockClient,
         model_id: str = DEFAULT_JUDGE_MODEL_ID,
-        prompt_template: str = JUDGE_QUESTION_DOMAIN_PROMPT,
+        prompt_template: str = JUDGE_DOMAIN_TWO_STAGE,
         domain_desc: str = _DEFAULT_DOMAIN_DESC,
     ):
         self.bedrock = bedrock_client
