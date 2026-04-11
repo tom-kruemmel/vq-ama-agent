@@ -871,13 +871,19 @@ def main():
     # ---- Per-questions-file state (separate CSV + JSON per file) ----
     _file_state: dict[str, dict] = {}
 
+    ragas_output_dir = os.path.join("analysis_output", "deepeval")
+    os.makedirs(ragas_output_dir, exist_ok=True)
+
     def _output_paths(questions_file: str):
         """Derive per-questions-file output CSV/JSON paths."""
         stem = os.path.splitext(os.path.basename(questions_file))[0]
         suffix = stem.replace("questions_", "", 1)
-        csv_base = os.path.splitext(args.csv)[0]
-        json_base = os.path.splitext(args.json)[0]
-        return f"{csv_base}_{suffix}.csv", f"{json_base}_{suffix}.json"
+        csv_base = os.path.splitext(os.path.basename(args.csv))[0]
+        json_base = os.path.splitext(os.path.basename(args.json))[0]
+        return (
+            os.path.join(ragas_output_dir, f"{csv_base}_{suffix}.csv"),
+            os.path.join(ragas_output_dir, f"{json_base}_{suffix}.json"),
+        )
 
     def _get_file_state(questions_file: str) -> dict:
         """Get or lazily initialise (with resume) the state for a questions file."""
