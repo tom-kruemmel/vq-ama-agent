@@ -738,6 +738,7 @@ def main():
     TOP_K = 15
     TEMPERATURE_VALUES = [0.0, 0.3, 0.7]
     CONTEXT_LIMIT_VALUES = [3, 5, 10]
+    RERANK_TOP_N_VALUES = [5, 10]
 
     # Base configurations for headings
     BASE_CONFIGS = [
@@ -761,22 +762,24 @@ def main():
                 for judge_name, judge_prompt in JUDGE_PROMPTS.items():
                     for temperature in TEMPERATURE_VALUES:
                         for context_limit in CONTEXT_LIMIT_VALUES:
-                            exp_name = (
-                                f"{headings_str}"
-                                f"_q_{query_name}_a_{answer_name}_j_{judge_name}"
-                                f"_k{TOP_K}_t{temperature}_cl{context_limit}"
-                            )
-                            experiments.append({
-                                "name": exp_name,
-                                "headings": base_config["headings"],
-                                "questions_file": base_config["questions_file"],
-                                "generate_queries_prompt": query_prompt,
-                                "generate_answer_prompt": answer_prompt,
-                                "judge_question_domain_prompt": judge_prompt,
-                                "top_k": TOP_K,
-                                "temperature": temperature,
-                                "context_limit": context_limit,
-                            })
+                            for rerank_top_n in RERANK_TOP_N_VALUES:
+                                exp_name = (
+                                    f"{headings_str}"
+                                    f"_q_{query_name}_a_{answer_name}_j_{judge_name}"
+                                    f"_k{TOP_K}_t{temperature}_cl{context_limit}_rn{rerank_top_n}"
+                                )
+                                experiments.append({
+                                    "name": exp_name,
+                                    "headings": base_config["headings"],
+                                    "questions_file": base_config["questions_file"],
+                                    "generate_queries_prompt": query_prompt,
+                                    "generate_answer_prompt": answer_prompt,
+                                    "judge_question_domain_prompt": judge_prompt,
+                                    "top_k": TOP_K,
+                                    "temperature": temperature,
+                                    "context_limit": context_limit,
+                                    "rerank_top_n": rerank_top_n,
+                                })
 
     logger.info(f"Generated {len(experiments)} experiment combinations")
     # --------------------------------------------------------------------------    
@@ -1040,6 +1043,7 @@ def main():
                 reranker=_reranker, checker=_checker,
                 domain_judge=_domain_judge,
                 top_k=exp_top_k,
+                rerank_top_n=exp.get("rerank_top_n", 10),
             )
 
             test_cases: List[LLMTestCase] = []
