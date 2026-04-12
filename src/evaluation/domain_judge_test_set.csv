@@ -3,7 +3,7 @@ What are the legal criteria for 3rd party software?,True,in_domain
 Which programming languages do we use?,True,in_domain
 What are the central frameworks?,True,in_domain
 What are internal and external audits and how do they differ?,True,in_domain
-How is technical debt tracked and managed at virtualQ?,True,in_domain
+How is technical debt tracked and managed?,True,in_domain
 How does the virtualQ system scale for performance and new locations?,True,in_domain
 How are speech recognition and intent recognition used in the system?,True,in_domain
 How is the build and deployment process organized?,True,in_domain
@@ -21,3 +21,25 @@ How do I make a chocolate cake?,False,out_of_domain_general_knowledge
 What are WebSockets used for?,False,out_of_domain_general_tech
 Explain Kubernetes pod scheduling,False,out_of_domain_general_tech
 What is the difference between TCP and UDP?,False,out_of_domain_general_tech
+Welche rechtlichen Kriterien gibt es bei Drittanbieter-Software?,True,in_domain
+Welche Programmiersprachen werden bei uns verwendet?,True,in_domain
+Welche Frameworks werden in unserem System genutzt?,True,in_domain
+Was sind interne und externe Audits und wie unterscheiden sie sich?,True,in_domain
+Wie wird mit Technical Debt umgegangen?,True,in_domain
+Wie skaliert das virtualQ-System hinsichtlich Performance und neuer Standorte?,True,in_domain
+Wie werden Spracherkennung und Intent-Erkennung im System eingesetzt?,True,in_domain
+Wie ist der Build- und Deployment-Prozess organisiert?,True,in_domain
+Wie nutzen wir Mobile Device Management?,True,in_domain
+Welche Machine-Learning-Algorithmen werden in der Forecasting-Engine verwendet?,True,in_domain
+Welche verschiedenen Optimizer bietet virtualQ an und was tun sie?,True,in_domain
+Was ist die Hauptstadt von Frankreich?,False,out_of_domain_general_knowledge
+Wer hat den Roman 1984 geschrieben?,False,out_of_domain_general_knowledge
+Wie schnell ist Lichtgeschwindigkeit?,False,out_of_domain_general_knowledge
+Was sind die Hauptfunktionen von Genesys Cloud?,False,out_of_domain_other_company
+Wie schneidet Five9 im Vergleich zu NICE inContact ab?,False,out_of_domain_other_company
+Erkläre Quantencomputing in einfachen Worten,False,out_of_domain_general_knowledge
+Was sind die besten Python-Web-Frameworks?,False,out_of_domain_general_tech
+Wie backe ich einen Schokoladenkuchen?,False,out_of_domain_general_knowledge
+Wofür werden WebSockets verwendet?,False,out_of_domain_general_tech
+Erkläre Kubernetes-Pod-Scheduling,False,out_of_domain_general_tech
+Was ist der Unterschied zwischen TCP und UDP?,False,out_of_domain_general_tech

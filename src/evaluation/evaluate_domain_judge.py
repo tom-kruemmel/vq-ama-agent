@@ -84,6 +84,7 @@ def load_test_set(path: Path) -> list[dict]:
                 "question": row["question"].strip(),
                 "expected_in_domain": expected.lower() == "true",
                 "category": row.get("category", "").strip(),
+                "language": row.get("language", "en").strip(),
             })
     return rows
 
@@ -116,6 +117,7 @@ def run_judge(
             "score": score,
             "rationale": rationale,
             "category": category,
+            "language": item.get("language", "en"),
         })
         logger.info(
             "[%2d/%d] %s  expected=%s predicted=%s score=%.2f",
@@ -263,6 +265,82 @@ def plot_comparison(all_results: dict[str, pd.DataFrame], outdir: Path, title_su
     summary.to_csv(outdir / f"comparison_summary{suffix}.csv", index=False)
 
 
+# ── Language comparison ───────────────────────────────────────────────────────
+
+def print_and_save_language_comparison(
+    df: pd.DataFrame, label: str, outdir: Path,
+) -> None:
+    """Split results by language and report per-language metrics side by side."""
+    languages = sorted(df["language"].unique())
+    if len(languages) < 2:
+        return
+
+    rows = []
+    for lang in languages:
+        sub = df[df["language"] == lang]
+        y_true = sub["expected_in_domain"].astype(int)
+        y_pred = sub["predicted_in_domain"].astype(int)
+        n = len(sub)
+        acc = (y_true == y_pred).mean()
+        f1_in = f1_score(y_true, y_pred, pos_label=1, zero_division=0)
+        f1_out = f1_score(y_true, y_pred, pos_label=0, zero_division=0)
+        rows.append({
+            "language": lang,
+            "n": n,
+            "accuracy": round(acc, 3),
+            "f1_in_domain": round(f1_in, 3),
+            "f1_out_of_domain": round(f1_out, 3),
+        })
+
+    lang_df = pd.DataFrame(rows)
+    print(f"\n{'─' * 60}")
+    print(f"Language comparison — {label}")
+    print("─" * 60)
+    print(lang_df.to_string(index=False))
+
+    fname = outdir / f"language_comparison_{_sanitize(label)}.csv"
+    lang_df.to_csv(fname, index=False)
+    print(f"  -> Saved to {fname}")
+
+
+def plot_language_comparison(
+    df: pd.DataFrame, label: str, outdir: Path,
+) -> None:
+    """Bar chart comparing F1 scores between languages."""
+    languages = sorted(df["language"].unique())
+    if len(languages) < 2:
+        return
+
+    f1_in = []
+    f1_out = []
+    for lang in languages:
+        sub = df[df["language"] == lang]
+        y_true = sub["expected_in_domain"].astype(int)
+        y_pred = sub["predicted_in_domain"].astype(int)
+        f1_in.append(f1_score(y_true, y_pred, pos_label=1, zero_division=0))
+        f1_out.append(f1_score(y_true, y_pred, pos_label=0, zero_division=0))
+
+    x = np.arange(len(languages))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.bar(x - width / 2, f1_in, width, label="F1 (in-domain)", color="#4CAF50")
+    ax.bar(x + width / 2, f1_out, width, label="F1 (out-of-domain)", color="#F44336")
+    ax.set_xticks(x)
+    ax.set_xticklabels([l.upper() for l in languages])
+    ax.set_ylabel("F1 score")
+    ax.set_title(f"EN vs DE — {label}")
+    ax.set_ylim(0, 1.05)
+    ax.legend()
+    ax.grid(axis="y", linewidth=0.3)
+
+    fig.tight_layout()
+    fname = outdir / f"language_comparison_{_sanitize(label)}.png"
+    fig.savefig(fname, dpi=200)
+    plt.close(fig)
+    print(f"  -> Saved language comparison chart to {fname}")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -321,7 +399,11 @@ def main() -> None:
     test_set = load_test_set(args.test_set)
     n_in = sum(1 for t in test_set if t["expected_in_domain"])
     n_out = len(test_set) - n_in
-    print(f"Loaded {len(test_set)} questions ({n_in} in-domain, {n_out} out-of-domain)")
+    lang_counts = {}
+    for t in test_set:
+        lang_counts[t["language"]] = lang_counts.get(t["language"], 0) + 1
+    lang_str = ", ".join(f"{k}: {v}" for k, v in sorted(lang_counts.items()))
+    print(f"Loaded {len(test_set)} questions ({n_in} in-domain, {n_out} out-of-domain; {lang_str})")
 
     # Resolve model list
     model_ids: list[str] = []
@@ -372,6 +454,8 @@ def main() -> None:
             print_and_save_report(df, save_label, model_outdir)
             plot_score_histogram(df, save_label, model_outdir)
             plot_threshold_f1(df, save_label, model_outdir)
+            print_and_save_language_comparison(df, save_label, model_outdir)
+            plot_language_comparison(df, save_label, model_outdir)
 
         # Per-model prompt comparison (when multiple prompts)
         plot_comparison(per_prompt_results, model_outdir, title_suffix=f" — {model_short}")
