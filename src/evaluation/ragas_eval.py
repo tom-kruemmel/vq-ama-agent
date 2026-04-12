@@ -714,7 +714,6 @@ def main():
 
     ANSWER_PROMPTS = {
         "qa_terse": GENERATE_ANSWER_PROMPT,
-        "conversational": GENERATE_ANSWER_CONVERSATIONAL,
         "instruction_block": GENERATE_ANSWER_INSTRUCTION_BLOCK,
         "uncertainty_aware": GENERATE_ANSWER_UNCERTAINTY_AWARE,
         "full_cot": GENERATE_ANSWER_FULL_COT,
@@ -728,27 +727,20 @@ def main():
     }
 
     JUDGE_PROMPTS = {
-        "default": JUDGE_QUESTION_DOMAIN_PROMPT,
+        "two_stage": JUDGE_DOMAIN_TWO_STAGE,
+        # "default": JUDGE_QUESTION_DOMAIN_PROMPT,
         # "lenient": JUDGE_DOMAIN_LENIENT,
-        # "two_stage": JUDGE_DOMAIN_TWO_STAGE,
         # "category": JUDGE_DOMAIN_CATEGORY,
     }
 
     # --------- Retrieval & generation parameter sweeps ----------
-    TOP_K_VALUES = [5, 10, 15]
+    # Fixed top_k: retrieve plenty, then vary how many are passed to the LLM
+    TOP_K = 15
     TEMPERATURE_VALUES = [0.0, 0.3, 0.7]
     CONTEXT_LIMIT_VALUES = [3, 5, 10]
 
     # Base configurations for headings
     BASE_CONFIGS = [
-        {
-            "headings": ["PUBLIC"],
-            "questions_file": "src/evaluation/questions_short_public.csv",
-        },
-        {
-            "headings": ["PUBLIC"],
-            "questions_file": "src/evaluation/questions_short_public_de.csv",
-        },
         {
             "headings": ["PUBLIC", "CONFIDENTIAL"],
             "questions_file": "src/evaluation/questions_short_confidential.csv",
@@ -767,25 +759,24 @@ def main():
         for query_name, query_prompt in QUERY_PROMPTS.items():
             for answer_name, answer_prompt in ANSWER_PROMPTS.items():
                 for judge_name, judge_prompt in JUDGE_PROMPTS.items():
-                    for top_k in TOP_K_VALUES:
-                        for temperature in TEMPERATURE_VALUES:
-                            for context_limit in CONTEXT_LIMIT_VALUES:
-                                exp_name = (
-                                    f"{headings_str}"
-                                    f"_q_{query_name}_a_{answer_name}_j_{judge_name}"
-                                    f"_k{top_k}_t{temperature}_cl{context_limit}"
-                                )
-                                experiments.append({
-                                    "name": exp_name,
-                                    "headings": base_config["headings"],
-                                    "questions_file": base_config["questions_file"],
-                                    "generate_queries_prompt": query_prompt,
-                                    "generate_answer_prompt": answer_prompt,
-                                    "judge_question_domain_prompt": judge_prompt,
-                                    "top_k": top_k,
-                                    "temperature": temperature,
-                                    "context_limit": context_limit,
-                                })
+                    for temperature in TEMPERATURE_VALUES:
+                        for context_limit in CONTEXT_LIMIT_VALUES:
+                            exp_name = (
+                                f"{headings_str}"
+                                f"_q_{query_name}_a_{answer_name}_j_{judge_name}"
+                                f"_k{TOP_K}_t{temperature}_cl{context_limit}"
+                            )
+                            experiments.append({
+                                "name": exp_name,
+                                "headings": base_config["headings"],
+                                "questions_file": base_config["questions_file"],
+                                "generate_queries_prompt": query_prompt,
+                                "generate_answer_prompt": answer_prompt,
+                                "judge_question_domain_prompt": judge_prompt,
+                                "top_k": TOP_K,
+                                "temperature": temperature,
+                                "context_limit": context_limit,
+                            })
 
     logger.info(f"Generated {len(experiments)} experiment combinations")
     # --------------------------------------------------------------------------    
