@@ -68,6 +68,7 @@ class BedrockClient:
         max_tokens: int = 512,
         temperature: float = 0.7,
         top_p: float = 1.0,
+        system_prompt: str = "You are a helpful assistant.",
     ) -> Dict[str, Any]:
         if isinstance(prompt, list):
             try:
@@ -81,21 +82,12 @@ class BedrockClient:
         else:
             raise TypeError(f"Unsupported prompt type: {type(prompt)}")
 
-        payload_messages = [
-            {"role": "system", "content": [{"text": "You are a helpful assistant."}]},
-            {"role": "user",   "content": [{"text": input_text}]}
-        ]
-
-        payload = {
-            "messages": payload_messages,
-            "inferenceConfig": {
-                "maxTokens": max_tokens,
-                "temperature": temperature,
-                "topP": top_p
-            }
+        inference_cfg = {
+            "maxTokens": max_tokens,
+            "temperature": temperature,
+            "topP": top_p
         }
 
-        inference_cfg = payload["inferenceConfig"]
         max_retries = 8
         base = 0.5  # seconds
 
@@ -103,7 +95,7 @@ class BedrockClient:
             try:
                 resp = self.client.converse(
                     modelId=model_id,
-                    system=[{"text": "You are a helpful assistant."}],
+                    system=[{"text": system_prompt}],
                     messages=[
                         {"role": "user", "content": [{"text": input_text}]}
                     ],

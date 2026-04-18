@@ -48,10 +48,6 @@ User's question: {question}
 
 # Q/A Style: Terse, fact-focused
 GENERATE_ANSWER_PROMPT = """
-You are an assistant for the following domain:
-{domain_desc}
-Answer questions accordingly, staying within this domain's scope.
-
 Conversation so far:
 {chat_history}
 
@@ -68,10 +64,6 @@ Answer:
 
 # Conversational Style
 GENERATE_ANSWER_CONVERSATIONAL = """
-You are an assistant for the following domain:
-{domain_desc}
-Answer questions accordingly, staying within this domain's scope.
-
 Conversation so far:
 {chat_history}
 
@@ -91,9 +83,6 @@ Response:
 # Instruction Block Style (enterprise)
 GENERATE_ANSWER_INSTRUCTION_BLOCK = """
 [SYSTEM]
-You are a technical documentation assistant for the following domain:
-{domain_desc}
-Answer questions accordingly, staying within this domain's scope. You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
 
 [CONVERSATION HISTORY]
 {chat_history}
@@ -103,6 +92,9 @@ Answer questions accordingly, staying within this domain's scope. You must ONLY 
 
 [QUESTION]
 {question}
+
+You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
+
 
 IMPORTANT: You MUST reply in {language}.
 
@@ -114,10 +106,6 @@ IMPORTANT: You MUST reply in {language}.
 
 # Uncertainty-Aware
 GENERATE_ANSWER_UNCERTAINTY_AWARE = """
-You are an assistant for the following domain:
-{domain_desc}
-Answer questions accordingly, staying within this domain's scope.
-
 Conversation so far:
 {chat_history}
 
@@ -139,10 +127,6 @@ Answer:
 
 # Full Chain-of-Thought
 GENERATE_ANSWER_FULL_COT = """
-You are an assistant for the following domain:
-{domain_desc}
-Answer questions accordingly, staying within this domain's scope.
-
 Conversation so far:
 {chat_history}
 

@@ -72,11 +72,17 @@ class RAGAgent:
         ]
         context = "\n\n".join(context_texts)
         answer_prompt = self.generate_answer_prompt.format(
-            context=context, question=question, chat_history=chat_history, language=language, domain_desc=domain_desc
+            context=context, question=question, chat_history=chat_history, language=language
         )
-        return self.answer_question(answer_prompt)
+        system_prompt = (
+            f"You are an assistant for the following domain:\n{domain_desc}\n"
+            "Answer questions accordingly, staying within this domain's scope."
+            if domain_desc
+            else "You are a helpful assistant."
+        )
+        return self.answer_question(answer_prompt, system_prompt=system_prompt)
 
-    def answer_question(self, question: str) -> str:
+    def answer_question(self, question: str, system_prompt: str = "You are a helpful assistant.") -> str:
         """
         Queries Bedrock to generate an answer.
         """
@@ -86,6 +92,7 @@ class RAGAgent:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             top_p=self.top_p,
+            system_prompt=system_prompt,
         )
         # Some models (e.g. Qwen3) return reasoningContent blocks before the
         # text block.  Walk the list and return the first text entry.
