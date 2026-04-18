@@ -2,7 +2,8 @@
 
 Runs each question through DomainJudge with one or more prompt templates
 and one or more models, then reports precision / recall / F1 and plots
-score histograms.
+score histograms.  Multiple score thresholds can be evaluated in a single
+run (the LLM is called once per question; thresholds are applied post-hoc).
 
 Usage:
     poetry run python -m src.evaluation.evaluate_domain_judge \
@@ -19,10 +20,10 @@ Usage:
         --test-set src/evaluation/domain_judge_test_set.csv \
         --models eu.amazon.nova-lite-v1:0
 
-    # Compare multiple models:
+    # Compare multiple thresholds:
     poetry run python -m src.evaluation.evaluate_domain_judge \
         --test-set src/evaluation/domain_judge_test_set.csv \
-        --models eu.amazon.nova-lite-v1:0 qwen.qwen3-235b-a22b-2507-v1:0
+        --min-scores 0.6 0.8 1.0
 """
 
 from __future__ import annotations
@@ -375,8 +376,9 @@ def main() -> None:
         help="(deprecated, use --models) Single Bedrock model ID.",
     )
     parser.add_argument(
-        "--min-score", type=float, default=0.60,
-        help="min_score threshold passed to judge (default: 0.60).",
+        "--min-scores", type=float, nargs="+", default=[0.60],
+        help="One or more min_score thresholds to evaluate (default: 0.60). "
+             "The judge is called once; results are re-thresholded post-hoc.",
     )
     parser.add_argument(
         "--sleep", type=float, default=0.5,
@@ -445,19 +447,37 @@ def main() -> None:
                 prompt_template=PROMPT_VARIANTS[prompt_name],
             )
 
-            label = f"{model_short} / {prompt_name}" if multi_model else prompt_name
-            df = run_judge(test_set, judge, min_score=args.min_score, sleep=args.sleep)
-            per_prompt_results[prompt_name] = df
-            all_results[label] = df
+            # Run judge once with min_score=0 to capture raw scores.
+            df_raw = run_judge(test_set, judge, min_score=0.0, sleep=args.sleep)
 
-            save_label = f"{_sanitize(model_short)}_{prompt_name}" if multi_model else prompt_name
-            print_and_save_report(df, save_label, model_outdir)
-            plot_score_histogram(df, save_label, model_outdir)
-            plot_threshold_f1(df, save_label, model_outdir)
-            print_and_save_language_comparison(df, save_label, model_outdir)
-            plot_language_comparison(df, save_label, model_outdir)
+            for min_score in args.min_scores:
+                # Re-threshold predictions post-hoc.
+                df = df_raw.copy()
+                df["predicted_in_domain"] = df["score"] >= min_score
 
-        # Per-model prompt comparison (when multiple prompts)
+                thresh_tag = f"t{min_score:.2f}".replace(".", "")
+                label = (
+                    f"{model_short} / {prompt_name} / {min_score:.2f}"
+                    if multi_model
+                    else f"{prompt_name} / {min_score:.2f}"
+                )
+                save_label = (
+                    f"{_sanitize(model_short)}_{prompt_name}_{thresh_tag}"
+                    if multi_model
+                    else f"{prompt_name}_{thresh_tag}"
+                )
+
+                per_prompt_results[label] = df
+                all_results[label] = df
+
+                print(f"\n  ▸ Threshold {min_score:.2f}")
+                print_and_save_report(df, save_label, model_outdir)
+                plot_score_histogram(df, save_label, model_outdir)
+                plot_threshold_f1(df, save_label, model_outdir)
+                print_and_save_language_comparison(df, save_label, model_outdir)
+                plot_language_comparison(df, save_label, model_outdir)
+
+        # Per-model prompt comparison (when multiple prompts / thresholds)
         plot_comparison(per_prompt_results, model_outdir, title_suffix=f" — {model_short}")
 
     # Cross-model comparison (when multiple models)
