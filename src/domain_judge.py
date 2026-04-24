@@ -11,7 +11,7 @@ DEFAULT_JUDGE_MODEL_ID = "qwen.qwen3-235b-a22b-2507-v1:0"
 
 # Default domain description for virtualQ
 _DEFAULT_DOMAIN_DESC = (
-    "Questions specifically about the telephony company virtualQ and its technology stack. "
+    "Questions specifically about the software as a service company virtualQ providing callback solutions for call centers and the company's technology stack. "
     "This includes: virtualQ's products, APIs/SDKs, architecture, cloud providers, "
     "datastores, infrastructure, integrations, deployment/CICD, observability, "
     "security/compliance, and engineering practices at virtualQ. Be sure to include "
