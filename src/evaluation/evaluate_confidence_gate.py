@@ -59,6 +59,14 @@ from ..prompt_templates import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MODELS: list[str] = [
+    "qwen.qwen3-235b-a22b-2507-v1:0",
+    "eu.amazon.nova-pro-v1:0",
+    "openai.gpt-oss-120b-1:0",
+    "eu.amazon.nova-lite-v1:0",
+    "eu.mistral.pixtral-large-2502-v1:0",
+]
+
 QUERY_PROMPT_VARIANTS = {
     "default": GENERATE_QUERIES_PROMPT,
     "diverse": GENERATE_QUERIES_DIVERSE,
@@ -394,8 +402,9 @@ def main() -> None:
         help="Number of documents to keep after reranking (default: 10).",
     )
     parser.add_argument(
-        "--model", type=str, default=None,
-        help="Bedrock model ID for query expansion (default: auto-pick).",
+        "--models", nargs="*", type=str, default=None,
+        help="Bedrock model IDs for query expansion "
+             f"(default: {', '.join(DEFAULT_MODELS)}).",
     )
     parser.add_argument(
         "--sleep", type=float, default=0.5,
@@ -444,7 +453,7 @@ def main() -> None:
 
     # Initialize shared components (retriever, fusion, reranker are prompt-agnostic)
     bedrock = BedrockClient()
-    model_id = args.model or os.getenv("MODEL_ID", "qwen.qwen3-235b-a22b-2507-v1:0")
+    model_ids = args.models or DEFAULT_MODELS
     retriever = Embeddings()
     fusion = RankFusion()
     reranker = CrossEncoderReranker()
@@ -452,140 +461,150 @@ def main() -> None:
     # Determine which query prompts to test
     query_prompt_names = args.query_prompts or list(QUERY_PROMPT_VARIANTS)
     print(f"Query prompts to test: {query_prompt_names}")
-    print(f"Using model: {model_id}")
+    print(f"Models to test: {model_ids}")
     print(f"top_k={args.top_k}, rerank_top_n={args.rerank_top_n}")
 
     from collections import defaultdict
     import copy
 
-    # Track best config per query prompt for cross-prompt comparison
-    cross_prompt_results: dict[str, dict] = {}
+    for model_id in model_ids:
+        # Short model label for directory names
+        model_label = model_id.split(".", 1)[-1].split(":")[0]  # e.g. "qwen3-235b-a22b-2507-v1"
+        model_outdir = args.outdir / _sanitize(model_label)
+        model_outdir.mkdir(parents=True, exist_ok=True)
 
-    for qp_name in query_prompt_names:
-        print(f"\n{'═' * 60}")
-        print(f"Query prompt: {qp_name}")
-        print(f"{'═' * 60}")
+        print(f"\n{'╔' + '═' * 68 + '╗'}")
+        print(f"  Model: {model_id}")
+        print(f"{'╚' + '═' * 68 + '╝'}")
 
-        qp_outdir = args.outdir / _sanitize(qp_name)
-        qp_outdir.mkdir(parents=True, exist_ok=True)
+        # Track best config per query prompt for cross-prompt comparison
+        cross_prompt_results: dict[str, dict] = {}
 
-        query_prompt = QUERY_PROMPT_VARIANTS[qp_name]
-        agent = RAGAgent(
-            bedrock,
-            model_id,
-            generate_queries_prompt=query_prompt,
-            generate_answer_prompt=GENERATE_ANSWER_PROMPT,
-        )
+        for qp_name in query_prompt_names:
+            print(f"\n{'═' * 60}")
+            print(f"Query prompt: {qp_name}  (model: {model_label})")
+            print(f"{'═' * 60}")
 
-        # Deep copy test cases so each prompt gets fresh feature slots
-        qp_test_cases = copy.deepcopy(all_test_cases)
+            qp_outdir = model_outdir / _sanitize(qp_name)
+            qp_outdir.mkdir(parents=True, exist_ok=True)
 
-        # Group test cases by headings to batch retrieval
-        by_headings = defaultdict(list)
-        for tc in qp_test_cases:
-            key = tuple(tc["headings"])
-            by_headings[key].append(tc)
-
-        print(f"\nRetrieving and reranking for {len(qp_test_cases)} questions...")
-        for headings_tuple, cases in by_headings.items():
-            headings = list(headings_tuple)
-            print(f"\n  Headings: {headings} ({len(cases)} questions)")
-            retrieve_and_rerank(
-                cases,
-                agent=agent,
-                retriever=retriever,
-                fusion=fusion,
-                reranker=reranker,
-                headings=headings,
-                top_k=args.top_k,
-                rerank_top_n=args.rerank_top_n,
-                sleep=args.sleep,
+            query_prompt = QUERY_PROMPT_VARIANTS[qp_name]
+            agent = RAGAgent(
+                bedrock,
+                model_id,
+                generate_queries_prompt=query_prompt,
+                generate_answer_prompt=GENERATE_ANSWER_PROMPT,
             )
 
-        # ── Bidirectional check: confidential_only with CONFIDENTIAL ──
-        confidential_only_cases = [
-            tc for tc in qp_test_cases if tc["category"] == "confidential_only"
-        ]
-        confidential_mirror_cases = []
-        if confidential_only_cases:
-            print(f"\n  Running bidirectional check: {len(confidential_only_cases)} "
-                  f"confidential_only questions with PUBLIC+CONFIDENTIAL headings...")
-            for tc in confidential_only_cases:
-                mirror = {
-                    "question": tc["question"],
-                    "expected_confident": True,
-                    "lang": tc["lang"],
-                    "headings": ["PUBLIC", "CONFIDENTIAL"],
-                    "category": "confidential_mirror",
-                }
-                confidential_mirror_cases.append(mirror)
+            # Deep copy test cases so each prompt gets fresh feature slots
+            qp_test_cases = copy.deepcopy(all_test_cases)
 
-            retrieve_and_rerank(
-                confidential_mirror_cases,
-                agent=agent,
-                retriever=retriever,
-                fusion=fusion,
-                reranker=reranker,
-                headings=["PUBLIC", "CONFIDENTIAL"],
-                top_k=args.top_k,
-                rerank_top_n=args.rerank_top_n,
-                sleep=args.sleep,
+            # Group test cases by headings to batch retrieval
+            by_headings = defaultdict(list)
+            for tc in qp_test_cases:
+                key = tuple(tc["headings"])
+                by_headings[key].append(tc)
+
+            print(f"\nRetrieving and reranking for {len(qp_test_cases)} questions...")
+            for headings_tuple, cases in by_headings.items():
+                headings = list(headings_tuple)
+                print(f"\n  Headings: {headings} ({len(cases)} questions)")
+                retrieve_and_rerank(
+                    cases,
+                    agent=agent,
+                    retriever=retriever,
+                    fusion=fusion,
+                    reranker=reranker,
+                    headings=headings,
+                    top_k=args.top_k,
+                    rerank_top_n=args.rerank_top_n,
+                    sleep=args.sleep,
+                )
+
+            # ── Bidirectional check: confidential_only with CONFIDENTIAL ──
+            confidential_only_cases = [
+                tc for tc in qp_test_cases if tc["category"] == "confidential_only"
+            ]
+            confidential_mirror_cases = []
+            if confidential_only_cases:
+                print(f"\n  Running bidirectional check: {len(confidential_only_cases)} "
+                      f"confidential_only questions with PUBLIC+CONFIDENTIAL headings...")
+                for tc in confidential_only_cases:
+                    mirror = {
+                        "question": tc["question"],
+                        "expected_confident": True,
+                        "lang": tc["lang"],
+                        "headings": ["PUBLIC", "CONFIDENTIAL"],
+                        "category": "confidential_mirror",
+                    }
+                    confidential_mirror_cases.append(mirror)
+
+                retrieve_and_rerank(
+                    confidential_mirror_cases,
+                    agent=agent,
+                    retriever=retriever,
+                    fusion=fusion,
+                    reranker=reranker,
+                    headings=["PUBLIC", "CONFIDENTIAL"],
+                    top_k=args.top_k,
+                    rerank_top_n=args.rerank_top_n,
+                    sleep=args.sleep,
+                )
+
+            # Combine for sweep
+            combined = qp_test_cases + confidential_mirror_cases
+            print(f"\nTotal test cases for sweep: {len(combined)} "
+                  f"({len(qp_test_cases)} original + {len(confidential_mirror_cases)} mirror)")
+
+            # Save per-question features
+            save_per_question_details(qp_test_cases, qp_outdir)
+            if confidential_mirror_cases:
+                save_per_question_details(
+                    confidential_mirror_cases, qp_outdir,
+                    filename="per_question_features_confidential_mirror.csv",
+                )
+
+            # Plot score distributions
+            plot_score_distributions(qp_test_cases, qp_outdir)
+
+            # Sweep thresholds
+            n_combos = (len(args.min_chunks) * len(args.min_unique_chunks) *
+                        len(args.min_total_chars) * len(args.min_top1) * len(args.min_avg_top3))
+            print(f"\nSweeping {n_combos} parameter combinations...")
+
+            sweep_df = sweep_thresholds(
+                combined,
+                min_chunks_values=args.min_chunks,
+                min_unique_chunks_values=args.min_unique_chunks,
+                min_total_chars_values=args.min_total_chars,
+                min_top1_values=args.min_top1,
+                min_avg_top3_values=args.min_avg_top3,
             )
 
-        # Combine for sweep
-        combined = qp_test_cases + confidential_mirror_cases
-        print(f"\nTotal test cases for sweep: {len(combined)} "
-              f"({len(qp_test_cases)} original + {len(confidential_mirror_cases)} mirror)")
+            # Report best configurations
+            report_best(sweep_df, qp_outdir)
 
-        # Save per-question features
-        save_per_question_details(qp_test_cases, qp_outdir)
-        if confidential_mirror_cases:
-            save_per_question_details(
-                confidential_mirror_cases, qp_outdir,
-                filename="per_question_features_confidential_mirror.csv",
-            )
+            # Plot heatmap
+            plot_threshold_heatmap(sweep_df, qp_outdir)
 
-        # Plot score distributions
-        plot_score_distributions(qp_test_cases, qp_outdir)
+            # Track best config for cross-prompt comparison
+            best = sweep_df.sort_values("f1_macro", ascending=False).iloc[0]
+            cross_prompt_results[qp_name] = best.to_dict()
 
-        # Sweep thresholds
-        n_combos = (len(args.min_chunks) * len(args.min_unique_chunks) *
-                    len(args.min_total_chars) * len(args.min_top1) * len(args.min_avg_top3))
-        print(f"\nSweeping {n_combos} parameter combinations...")
+        # ── Cross-prompt comparison (per model) ─────────────────────────
+        if len(cross_prompt_results) > 1:
+            print(f"\n{'═' * 60}")
+            print(f"Cross-prompt comparison – {model_label} (best config per prompt)")
+            print("═" * 60)
 
-        sweep_df = sweep_thresholds(
-            combined,
-            min_chunks_values=args.min_chunks,
-            min_unique_chunks_values=args.min_unique_chunks,
-            min_total_chars_values=args.min_total_chars,
-            min_top1_values=args.min_top1,
-            min_avg_top3_values=args.min_avg_top3,
-        )
-
-        # Report best configurations
-        report_best(sweep_df, qp_outdir)
-
-        # Plot heatmap
-        plot_threshold_heatmap(sweep_df, qp_outdir)
-
-        # Track best config for cross-prompt comparison
-        best = sweep_df.sort_values("f1_macro", ascending=False).iloc[0]
-        cross_prompt_results[qp_name] = best.to_dict()
-
-    # ── Cross-prompt comparison ──────────────────────────────────────────
-    if len(cross_prompt_results) > 1:
-        print(f"\n{'═' * 60}")
-        print("Cross-prompt comparison (best config per prompt)")
-        print("═" * 60)
-
-        comparison_df = pd.DataFrame(cross_prompt_results).T
-        comparison_df.index.name = "query_prompt"
-        comparison_df = comparison_df.sort_values("f1_macro", ascending=False)
-        print(comparison_df[["f1_macro", "f1_pass", "f1_abstain", "accuracy",
-                             "abstention_rate", "min_top1_relevance",
-                             "min_avg_top3_relevance"]].to_string())
-        comparison_df.to_csv(args.outdir / "cross_prompt_comparison.csv")
-        print(f"\n  -> Saved to {args.outdir / 'cross_prompt_comparison.csv'}")
+            comparison_df = pd.DataFrame(cross_prompt_results).T
+            comparison_df.index.name = "query_prompt"
+            comparison_df = comparison_df.sort_values("f1_macro", ascending=False)
+            print(comparison_df[["f1_macro", "f1_pass", "f1_abstain", "accuracy",
+                                 "abstention_rate", "min_top1_relevance",
+                                 "min_avg_top3_relevance"]].to_string())
+            comparison_df.to_csv(model_outdir / "cross_prompt_comparison.csv")
+            print(f"\n  -> Saved to {model_outdir / 'cross_prompt_comparison.csv'}")
 
     print(f"\nDone. All outputs in {args.outdir}/")
 

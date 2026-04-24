@@ -7,6 +7,7 @@ import litellm
 import time
 import asyncio
 
+import hashlib
 import os, argparse, logging, json as json_lib
 import boto3
 from dataclasses import dataclass, field
@@ -585,6 +586,12 @@ class LenientLiteLLMModel(DeepEvalBaseLLM):
 # -------------------------
 # Helpers
 # -------------------------
+def _compute_question_hash(question: str, expected_answer: str) -> str:
+    """Deterministic hash of (question, expected_answer) to detect changes."""
+    content = f"{question}\x00{expected_answer}"
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+
 def _normalize_context_texts(docs) -> List[str]:
     texts: List[str] = []
     if docs is None:
@@ -698,6 +705,12 @@ def main():
             "If omitted, the script will auto-pick a single accessible model."
         ),
     )
+    parser.add_argument(
+        "--no-judge",
+        action="store_true",
+        default=False,
+        help="Disable the domain judge (skip judge prompt iteration and DomainJudge creation).",
+    )
     args = parser.parse_args()
 
     logger.info(
@@ -726,19 +739,22 @@ def main():
         # "bullet_summary": GENERATE_ANSWER_BULLET_SUMMARY,
     }
 
-    JUDGE_PROMPTS = {
-        "two_stage": JUDGE_DOMAIN_TWO_STAGE,
-        # "default": JUDGE_QUESTION_DOMAIN_PROMPT,
-        # "lenient": JUDGE_DOMAIN_LENIENT,
-        # "category": JUDGE_DOMAIN_CATEGORY,
-    }
+    if args.no_judge:
+        JUDGE_PROMPTS = {"none": None}
+    else:
+        JUDGE_PROMPTS = {
+            "two_stage": JUDGE_DOMAIN_TWO_STAGE,
+            # "default": JUDGE_QUESTION_DOMAIN_PROMPT,
+            # "lenient": JUDGE_DOMAIN_LENIENT,
+            # "category": JUDGE_DOMAIN_CATEGORY,
+        }
 
     # --------- Retrieval & generation parameter sweeps ----------
     # Fixed top_k: retrieve plenty, then vary how many are passed to the LLM
     TOP_K = 15
-    TEMPERATURE_VALUES = [0.0, 0.3, 0.7]
+    TEMPERATURE_VALUES = [0.0, 0.7]
     CONTEXT_LIMIT_VALUES = [3, 5, 10]
-    RERANK_TOP_N_VALUES = [5, 10]
+    RERANK_TOP_N_VALUES = [10]
 
     # Base configurations for headings
     BASE_CONFIGS = [
@@ -860,6 +876,7 @@ def main():
         # Domain judge features
         "domain_in_domain", "domain_score", "domain_rationale",
         "rejected_domain", "abstained",
+        "expected_answer",
     ]
 
     # ---- Per-questions-file state (separate CSV + JSON per file) ----
@@ -932,6 +949,92 @@ def main():
 
         _file_state[questions_file] = state
         return state
+
+    # Track which question files have been checked for changes
+    _invalidated_files: set[str] = set()
+
+    def _invalidate_changed_questions(fstate: dict, dataset: list, questions_file: str):
+        """Remove rows whose source question/answer changed or was deleted."""
+        if questions_file in _invalidated_files:
+            return
+        _invalidated_files.add(questions_file)
+
+        # Build current question -> hash map from the source questions file
+        current_hashes: dict[str, str] = {}
+        current_questions: set[str] = set()
+        for item in dataset:
+            current_questions.add(item["question"])
+            current_hashes[item["question"]] = _compute_question_hash(
+                item["question"], item["expected_answer"]
+            )
+
+        # Build lookup from JSON outputs so we can backfill expected_answer
+        # for old CSV rows that were written before we started tracking it.
+        # Key: (experiment, model_id, question) -> expected_answer
+        json_expected: dict[tuple, str] = {}
+        for o in fstate["outputs"]:
+            key = (o.get("experiment"), o.get("model_id"), o.get("user_input"))
+            ea = o.get("expected_answer")
+            if ea is not None:
+                json_expected[key] = ea
+
+        rows_to_keep = []
+        invalidated = 0
+        invalidated_keys: set[tuple] = set()
+        for row in fstate["rows"]:
+            if row.get("questions_file") != questions_file:
+                rows_to_keep.append(row)
+                continue
+            q = row["question"]
+
+            if q not in current_questions:
+                # Question was removed from the source file
+                logger.info(f"Question removed from {questions_file}, dropping row: {q[:80]!r}")
+                fstate["completed"].discard((row["experiment"], row["model_id"], q))
+                invalidated_keys.add((row["experiment"], row["model_id"], q))
+                invalidated += 1
+                continue
+
+            # Resolve the expected_answer: prefer CSV column, fall back to JSON
+            saved_expected = row.get("expected_answer")
+            if not saved_expected:
+                row_key = (row["experiment"], row["model_id"], q)
+                saved_expected = json_expected.get(row_key, "")
+                if saved_expected:
+                    # Backfill so future runs don't need the JSON lookup
+                    row["expected_answer"] = saved_expected
+
+            saved_hash = _compute_question_hash(q, saved_expected)
+            current_hash = current_hashes[q]
+
+            if saved_hash != current_hash:
+                # Question text or expected answer changed
+                logger.info(f"Question/answer changed in {questions_file}, will re-run: {q[:80]!r}")
+                fstate["completed"].discard((row["experiment"], row["model_id"], q))
+                invalidated_keys.add((row["experiment"], row["model_id"], q))
+                invalidated += 1
+            else:
+                rows_to_keep.append(row)
+
+        if invalidated:
+            fstate["rows"] = rows_to_keep
+            # Also drop matching entries from the JSON outputs list
+            fstate["outputs"] = [
+                o for o in fstate["outputs"]
+                if (o.get("experiment"), o.get("model_id"), o.get("user_input"))
+                   not in invalidated_keys
+            ]
+            # Persist the cleaned state so a restart doesn't redo this work
+            with open(fstate["csv"], "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
+                writer.writeheader()
+                writer.writerows(fstate["rows"])
+            with open(fstate["json"], "w", encoding="utf-8") as f:
+                json.dump(fstate["outputs"], f, ensure_ascii=False, indent=2)
+            logger.info(
+                f"Invalidated {invalidated} rows for {questions_file} "
+                f"(changed/removed questions); saved cleaned state"
+            )
     # ---- End per-file state ----
 
     # Helper to load questions for a given experiment
@@ -1018,6 +1121,9 @@ def main():
         # Get per-questions-file state (resume-aware)
         fstate = _get_file_state(questions_file)
 
+        # Detect changed / removed questions and invalidate stale rows
+        _invalidate_changed_questions(fstate, dataset, questions_file)
+
         # Run evaluation for each model separately, per experiment
         for gen_model_id in model_ids:
             logger.info(
@@ -1033,17 +1139,20 @@ def main():
                 generate_queries_prompt=exp_generate_queries_prompt,
                 generate_answer_prompt=exp_generate_answer_prompt,
             )
-            _domain_judge = DomainJudge(
-                my_bedrock_client,
-                DEFAULT_JUDGE_MODEL_ID,
-                prompt_template=exp_judge_question_domain_prompt,
-            )
+            if args.no_judge:
+                _domain_judge = None
+            else:
+                _domain_judge = DomainJudge(
+                    my_bedrock_client,
+                    DEFAULT_JUDGE_MODEL_ID,
+                    prompt_template=exp_judge_question_domain_prompt,
+                )
             app = RAGPipelineApp(
                 agent=agent, retriever=retriever, fusion=fusion,
                 reranker=_reranker, checker=_checker,
                 domain_judge=_domain_judge,
                 top_k=exp_top_k,
-                rerank_top_n=exp.get("rerank_top_n", 10),
+                rerank_top_n=experiment.get("rerank_top_n", 10),
             )
 
             test_cases: List[LLMTestCase] = []
@@ -1128,10 +1237,19 @@ def main():
                 logger.info(f"No new test cases for model={gen_model_id} experiment={exp_name}. Skipping eval.")
                 continue
 
-            # Run eval for this model (DeepEval will attach scores to test_cases)
-            evaluate(test_cases=test_cases, metrics=metrics)
+            # Run eval for this model — capture EvaluationResult to extract per-case scores
+            eval_result = evaluate(test_cases=test_cases, metrics=metrics)
 
-            # Persist per-question scores (per-model, per-question, per-experiment)
+            # Build a lookup: question -> {metric_name: score} from test_results
+            _scores_by_question: Dict[str, Dict[str, Optional[float]]] = {}
+            for test_result in eval_result.test_results:
+                q_key = test_result.input
+                scores: Dict[str, Optional[float]] = {}
+                for md in test_result.metrics_data:
+                    scores[md.name] = md.score
+                _scores_by_question[q_key] = scores
+
+            # Persist per-question scores from the bulk evaluate() results
             for case in test_cases:
                 logger.info(
                     f"[METRICS] experiment={exp_name} model={gen_model_id} "
@@ -1139,112 +1257,20 @@ def main():
                     f"chunks={len(case.retrieval_context or [])}"
                 )
 
-                faithfulness_score = None
-                answer_rel_score = None
-                contextual_rel_score = None
-                contextual_recall_score = None
-                contextual_precision_score = None
+                scores = _scores_by_question.get(case.input, {})
+                faithfulness_score = scores.get("Faithfulness")
+                answer_rel_score = scores.get("Answer Relevancy")
+                contextual_rel_score = scores.get("Contextual Relevancy")
+                contextual_recall_score = scores.get("Contextual Recall")
+                contextual_precision_score = scores.get("Contextual Precision")
 
-                f = FaithfulnessMetric(model=judge_model, threshold=0.0)
-                ar = AnswerRelevancyMetric(model=judge_model, threshold=0.0)
-                cr = ContextualRelevancyMetric(model=judge_model, threshold=0.0)
-                c_recall = ContextualRecallMetric(model=judge_model, threshold=0.0)
-                c_prec = ContextualPrecisionMetric(model=judge_model, threshold=0.0)
-
-                # Faithfulness
-                try:
-                    f.measure(case)
-                    faithfulness_score = getattr(f, "score", None)
-                    logger.debug(
-                        f"[METRIC OK] Faithfulness "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r} "
-                        f"score={faithfulness_score}"
-                    )
-                except Exception as e:
-                    logger.exception(
-                        f"[METRIC ERROR] Faithfulness failed for "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r}: {e}"
-                    )
-
-                time.sleep(0.15)
-
-                # Answer Relevancy
-                try:
-                    ar.measure(case)
-                    answer_rel_score = getattr(ar, "score", None)
-                    logger.debug(
-                        f"[METRIC OK] AnswerRelevancy "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r} "
-                        f"score={answer_rel_score}"
-                    )
-                except Exception as e:
-                    logger.exception(
-                        f"[METRIC ERROR] AnswerRelevancy failed for "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r}: {e}"
-                    )
-
-                time.sleep(0.25)
-
-                # Contextual Relevancy
-                try:
-                    cr.measure(case)
-                    contextual_rel_score = getattr(cr, "score", None)
-                    logger.debug(
-                        f"[METRIC OK] ContextualRelevancy "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r} "
-                        f"score={contextual_rel_score}"
-                    )
-                except Exception as e:
-                    logger.exception(
-                        f"[METRIC_ERROR] ContextualRelevancy failed for "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r}: {e}"
-                    )
-
-                time.sleep(0.25)
-
-                # Contextual Recall
-                try:
-                    c_recall.measure(case)
-                    contextual_recall_score = getattr(c_recall, "score", None)
-                    logger.debug(
-                        f"[METRIC OK] ContextualRecall "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r} "
-                        f"score={contextual_recall_score}"
-                    )
-                except Exception as e:
-                    logger.exception(
-                        f"[METRIC ERROR] ContextualRecall failed for "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r}: {e}"
-                    )
-
-                time.sleep(0.25)
-
-                # Contextual Precision
-                try:
-                    c_prec.measure(case)
-                    contextual_precision_score = getattr(c_prec, "score", None)
-                    logger.debug(
-                        f"[METRIC OK] ContextualPrecision "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r} "
-                        f"score={contextual_precision_score}"
-                    )
-                except Exception as e:
-                    logger.exception(
-                        f"[METRIC_ERROR] ContextualPrecision failed for "
-                        f"experiment={exp_name} model={gen_model_id} "
-                        f"question={case.input[:80]!r}: {e}"
-                    )
-
-                time.sleep(0.25)
+                logger.debug(
+                    f"[SCORES] experiment={exp_name} model={gen_model_id} "
+                    f"question={case.input[:80]!r} "
+                    f"faith={faithfulness_score} ar={answer_rel_score} "
+                    f"cr={contextual_rel_score} recall={contextual_recall_score} "
+                    f"prec={contextual_precision_score}"
+                )
 
                 # Look up confidence features logged during retrieval
                 cf = _confidence_features_by_question.get(case.input, {})
@@ -1282,6 +1308,7 @@ def main():
                     "domain_rationale": pr.domain_rationale if pr else None,
                     "rejected_domain": pr.rejected_domain if pr else False,
                     "abstained": pr.abstained if pr else False,
+                    "expected_answer": case.expected_output or "",
                 }
                 fstate["rows"].append(new_row)
                 fstate["completed"].add((exp_name, gen_model_id, case.input))
