@@ -1,0 +1,14 @@
+Prompt variant: gpt-oss-120b-1_lenient_t080
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.677     0.583     0.627        36
+    in-domain      0.444     0.545     0.490        22
+
+     accuracy                          0.569        58
+    macro avg      0.561     0.564     0.558        58
+ weighted avg      0.589     0.569     0.575        58
+
+Confusion matrix (rows=actual, cols=predicted):
+[[21 15]
+ [10 12]]

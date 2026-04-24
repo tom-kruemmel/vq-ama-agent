@@ -1,0 +1,14 @@
+Prompt variant: pixtral-large-2502-v1_two_stage_t100
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.621     1.000     0.766        36
+    in-domain      0.000     0.000     0.000        22
+
+     accuracy                          0.621        58
+    macro avg      0.310     0.500     0.383        58
+ weighted avg      0.385     0.621     0.475        58
+
+Confusion matrix (rows=actual, cols=predicted):
+[[36  0]
+ [22  0]]

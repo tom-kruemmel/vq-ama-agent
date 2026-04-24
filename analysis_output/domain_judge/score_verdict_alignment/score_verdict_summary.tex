@@ -1,0 +1,45 @@
+% ─── Score–verdict alignment (condensed) ─────────────────────────────────────
+
+\begin{table}[ht]
+\centering
+\caption{Score--verdict alignment across models and prompt variants.
+$\bar{s}_\text{in}$ / $\bar{s}_\text{out}$: mean confidence score for
+in-domain / out-of-domain questions.
+$r_{pb}$: point-biserial correlation between score and ground-truth label
+(positive = higher scores for in-domain, as expected).
+Out${\geq}0.5$: fraction of out-of-domain questions with score $\geq 0.50$.}
+\label{tab:score-verdict-alignment}
+\small
+\begin{tabular}{llccccccp{3.8cm}}
+\toprule
+Model & Prompt & $\bar{s}_\text{in}$ & $\bar{s}_\text{out}$ &
+  $r_{pb}$ & Sep.\ & Out${\geq}0.5$ & Out${\geq}0.6$ & Interpretation \\
+\midrule
+\multicolumn{9}{l}{\textit{Well-calibrated}} \\
+\midrule
+Qwen3-235B & default      & 0.82 & 0.10 & \textbf{+0.878} & 1.74 &  0\% &  0\% & Best calibration; score reliably separates classes \\
+Qwen3-235B & two\_stage   & 0.85 & 0.20 & +0.792 & 1.57 & 14\% & 14\% & Good separation, minor leakage \\
+Qwen3-235B & lenient      & 0.89 & 0.39 & +0.728 & 1.44 & 36\% & 36\% & Lenient prompt inflates out-of-domain scores \\
+Qwen3-235B & category     & 0.86 & 0.39 & +0.570 & 1.13 & 41\% & 41\% & Weakest Qwen3 variant \\
+\midrule
+\multicolumn{9}{l}{\textit{Moderately calibrated}} \\
+\midrule
+Nova Pro & lenient         & 0.84 & 0.36 & +0.699 & 1.38 & 36\% & 36\% & Usable but noisier than Qwen3 \\
+Nova Pro & default         & 0.69 & 0.18 & +0.620 & 1.23 & 18\% & 18\% & Moderate separation \\
+Nova Pro & two\_stage      & 0.48 & 0.11 & +0.477 & 0.94 &  9\% &  9\% & JSON failures lower in-domain scores \\
+Nova Pro & category        & 0.04 & 0.00 & +0.152 & 0.30 &  0\% &  0\% & Near-zero scores; prompt not viable \\
+\midrule
+\multicolumn{9}{l}{\textit{Miscalibrated -- score contradicts verdict}} \\
+\midrule
+GPT-OSS-120B & lenient     & 0.82 & 0.28 & +0.762 & 1.51 & 32\% & 32\% & Only prompt with positive $r_{pb}$ \\
+GPT-OSS-120B & category    & 0.88 & 0.91 & $-$0.090 & $-$0.18 & 95\% & 95\% & Score near-constant ${\approx}0.9$ for both classes \\
+GPT-OSS-120B & two\_stage  & 0.88 & 0.97 & $-$0.360 & $-$0.71 & 100\% & 100\% & Out-of-domain scored \emph{higher} than in-domain \\
+GPT-OSS-120B & default     & 0.59 & 0.98 & $-$0.587 & $-$1.16 & 100\% & 100\% & Worst case: inverted correlation \\
+\midrule
+\multicolumn{9}{l}{\textit{Non-functional -- all JSON parsing failed, scores = 0}} \\
+\midrule
+Nova Lite    & \emph{all}  & 0.00 & 0.00 & -- & -- & 0\% & 0\% & Cannot produce structured output \\
+Pixtral Large & \emph{all} & 0.00 & 0.00 & -- & -- & 0\% & 0\% & Cannot produce structured output \\
+\bottomrule
+\end{tabular}
+\end{table}

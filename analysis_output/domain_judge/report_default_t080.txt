@@ -1,0 +1,14 @@
+Prompt variant: default_t080
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.861     0.861     0.861        36
+    in-domain      0.773     0.773     0.773        22
+
+     accuracy                          0.828        58
+    macro avg      0.817     0.817     0.817        58
+ weighted avg      0.828     0.828     0.828        58
+
+Confusion matrix (rows=actual, cols=predicted):
+[[31  5]
+ [ 5 17]]

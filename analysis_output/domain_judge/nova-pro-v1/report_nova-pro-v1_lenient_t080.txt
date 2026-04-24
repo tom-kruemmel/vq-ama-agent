@@ -1,0 +1,14 @@
+Prompt variant: nova-pro-v1_lenient_t080
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.897     0.722     0.800        36
+    in-domain      0.655     0.864     0.745        22
+
+     accuracy                          0.776        58
+    macro avg      0.776     0.793     0.773        58
+ weighted avg      0.805     0.776     0.779        58
+
+Confusion matrix (rows=actual, cols=predicted):
+[[26 10]
+ [ 3 19]]

@@ -1,0 +1,45 @@
+question,expected_in_domain,predicted_in_domain,score,rationale,category,language
+What are the legal criteria for 3rd party software?,True,False,0.2,The question about legal criteria for 3rd party software is more related to legal and compliance aspects rather than the specific technology stack or products of virtualQ.,in_domain,en
+Which programming languages do we use?,True,True,0.9,"The question about programming languages is directly related to the technology stack and engineering practices at virtualQ, which falls within the specified domain.",in_domain,en
+What are the central frameworks?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+What are internal and external audits and how do they differ?,True,False,0.1,The question about internal and external audits is more related to general business practices and compliance rather than specific technology stack or products of the telephony company virtualQ.,in_domain,en
+How is technical debt tracked and managed?,True,True,0.9,"The question pertains to engineering practices, specifically how technical debt is managed, which is a relevant concern for a technology company like virtualQ.",in_domain,en
+How does the virtualQ system scale for performance and new locations?,True,True,0.95,"The question pertains to the scalability and performance of the virtualQ system, which is directly related to its technology stack and infrastructure.",in_domain,en
+How are speech recognition and intent recognition used in the system?,True,True,0.9,"The question pertains to the use of speech and intent recognition within the system, which are relevant technology components likely part of virtualQ's telephony solutions.",in_domain,en
+How is the build and deployment process organized?,True,True,0.95,"The question pertains to the build and deployment process, which is a core aspect of the technology stack and engineering practices at a telephony company like virtualQ.",in_domain,en
+What is Mobile Device Management and how is it used?,True,False,0.2,The question about Mobile Device Management is too general and not specifically tied to the telephony company virtualQ or its technology stack.,in_domain,en
+What machine learning algorithms are used in the forecasting engine?,True,True,0.9,"The question pertains to the technology stack and specific algorithms used by virtualQ, which falls within the domain of the company's technology and engineering practices.",in_domain,en
+Which different optimizers are offered by virtualQ and what do they do?,True,True,0.9,"The question pertains to specific offerings (optimizers) and their functionalities within the technology stack of virtualQ, which is directly related to the company's products and technology.",in_domain,en
+What is the capital of France?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Who wrote the novel 1984?,False,False,0.0,The question about the author of the novel 1984 is unrelated to the telephony company virtualQ and its technology stack.,out_of_domain_general_knowledge,en
+What is the speed of light?,False,False,0.0,The question about the speed of light is a general scientific inquiry and not related to the telephony company virtualQ or its technology stack.,out_of_domain_general_knowledge,en
+What are Genesys Cloud's main features?,False,False,0.0,Judge JSON parse failed.,out_of_domain_other_company,en
+How does Five9 compare to NICE inContact?,False,False,0.1,The question is about comparing two third-party companies (Five9 and NICE inContact) and does not pertain to virtualQ's technology stack or related topics.,out_of_domain_other_company,en
+Explain quantum computing in simple terms,False,False,0.1,The question about quantum computing is unrelated to the specific domain of the telephony company virtualQ and its technology stack.,out_of_domain_general_knowledge,en
+What are the best Python web frameworks?,False,False,0.1,The question about the best Python web frameworks is a general technology question and not specific to the telephony company virtualQ or its technology stack.,out_of_domain_general_tech,en
+How do I make a chocolate cake?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+What are WebSockets used for?,False,True,0.8,"WebSockets are a technology often used in real-time communication systems, which is relevant to a telephony company like virtualQ.",out_of_domain_general_tech,en
+Explain Kubernetes pod scheduling,False,True,0.8,"Kubernetes pod scheduling is a technology-related topic that falls within the domain of a technology company like virtualQ, especially considering their potential use of Kubernetes in their infrastructure.",out_of_domain_general_tech,en
+What is the difference between TCP and UDP?,False,False,0.1,The question about the difference between TCP and UDP is a general networking concept and not specific to the telephony company virtualQ or its technology stack.,out_of_domain_general_tech,en
+Welche rechtlichen Kriterien gibt es bei Drittanbieter-Software?,True,False,0.1,"The question pertains to general legal criteria for third-party software, which is not specific to the telephony company virtualQ or its technology stack.",in_domain,en
+Welche Programmiersprachen werden bei uns verwendet?,True,True,0.9,"The question asks about the programming languages used, which is directly related to the technology stack and engineering practices at virtualQ.",in_domain,en
+Welche Frameworks werden in unserem System genutzt?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Was sind interne und externe Audits und wie unterscheiden sie sich?,True,False,0.1,"The question is about general concepts of internal and external audits, which is not specific to the telephony company virtualQ or its technology stack.",in_domain,en
+Wie wird mit Technical Debt umgegangen?,True,True,0.8,"The question pertains to how technical debt is managed, which is a relevant engineering practice and technology-related concern for a company like virtualQ.",in_domain,en
+Wie skaliert das virtualQ-System hinsichtlich Performance und neuer Standorte?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie werden Spracherkennung und Intent-Erkennung im System eingesetzt?,True,True,0.9,"The question pertains to the use of speech recognition and intent recognition within the system, which are relevant technology aspects likely related to telephony and thus fall within the domain of virtualQ and its technology stack.",in_domain,en
+Wie ist der Build- und Deployment-Prozess organisiert?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie nutzen wir Mobile Device Management?,True,True,0.8,"The question pertains to Mobile Device Management, which is a technology practice that can be relevant to a telephony company like virtualQ for managing employee devices or integrated services.",in_domain,en
+Welche Machine-Learning-Algorithmen werden in der Forecasting-Engine verwendet?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Welche verschiedenen Optimizer bietet virtualQ an und was tun sie?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Was ist die Hauptstadt von Frankreich?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Wer hat den Roman 1984 geschrieben?,False,False,0.0,"The question is about the author of the novel '1984', which is unrelated to the telephony company virtualQ and its technology stack.",out_of_domain_general_knowledge,en
+Wie schnell ist Lichtgeschwindigkeit?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Was sind die Hauptfunktionen von Genesys Cloud?,False,False,0.0,Judge JSON parse failed.,out_of_domain_other_company,en
+Wie schneidet Five9 im Vergleich zu NICE inContact ab?,False,False,0.1,"The question compares Five9 and NICE inContact, which are unrelated to the telephony company virtualQ and its technology stack.",out_of_domain_other_company,en
+Erkläre Quantencomputing in einfachen Worten,False,False,0.1,"The question is about explaining quantum computing, which is unrelated to the telephony company virtualQ and its technology stack.",out_of_domain_general_knowledge,en
+Was sind die besten Python-Web-Frameworks?,False,False,0.1,The question about the best Python web frameworks is a general technology question and not specific to the telephony company virtualQ or its technology stack.,out_of_domain_general_tech,en
+Wie backe ich einen Schokoladenkuchen?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Wofür werden WebSockets verwendet?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+Erkläre Kubernetes-Pod-Scheduling,False,False,0.1,"The question is about Kubernetes Pod Scheduling, which is a general technology topic and not specific to the telephony company virtualQ or its technology stack.",out_of_domain_general_tech,en
+Was ist der Unterschied zwischen TCP und UDP?,False,False,0.1,The question about the difference between TCP and UDP is a general networking topic and not specific to the telephony company virtualQ or its technology stack.,out_of_domain_general_tech,en

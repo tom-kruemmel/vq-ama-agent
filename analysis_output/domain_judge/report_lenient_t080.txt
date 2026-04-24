@@ -1,0 +1,14 @@
+Prompt variant: lenient_t080
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.958     0.639     0.767        36
+    in-domain      0.618     0.955     0.750        22
+
+     accuracy                          0.759        58
+    macro avg      0.788     0.797     0.758        58
+ weighted avg      0.829     0.759     0.760        58
+
+Confusion matrix (rows=actual, cols=predicted):
+[[23 13]
+ [ 1 21]]

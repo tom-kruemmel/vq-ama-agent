@@ -1,0 +1,14 @@
+Prompt variant: gpt-oss-120b-1_two_stage
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.733     1.000     0.846        22
+    in-domain      1.000     0.636     0.778        22
+
+     accuracy                          0.818        44
+    macro avg      0.867     0.818     0.812        44
+ weighted avg      0.867     0.818     0.812        44
+
+Confusion matrix (rows=actual, cols=predicted):
+[[22  0]
+ [ 8 14]]

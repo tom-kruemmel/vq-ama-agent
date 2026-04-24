@@ -1,0 +1,45 @@
+question,expected_in_domain,predicted_in_domain,score,rationale,category,language
+What are the legal criteria for 3rd party software?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Which programming languages do we use?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+What are the central frameworks?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+What are internal and external audits and how do they differ?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+How is technical debt tracked and managed?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+How does the virtualQ system scale for performance and new locations?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+How are speech recognition and intent recognition used in the system?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+How is the build and deployment process organized?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+What is Mobile Device Management and how is it used?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+What machine learning algorithms are used in the forecasting engine?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Which different optimizers are offered by virtualQ and what do they do?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+What is the capital of France?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Who wrote the novel 1984?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+What is the speed of light?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+What are Genesys Cloud's main features?,False,False,0.0,Judge JSON parse failed.,out_of_domain_other_company,en
+How does Five9 compare to NICE inContact?,False,False,0.0,Judge JSON parse failed.,out_of_domain_other_company,en
+Explain quantum computing in simple terms,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+What are the best Python web frameworks?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+How do I make a chocolate cake?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+What are WebSockets used for?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+Explain Kubernetes pod scheduling,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+What is the difference between TCP and UDP?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+Welche rechtlichen Kriterien gibt es bei Drittanbieter-Software?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Welche Programmiersprachen werden bei uns verwendet?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Welche Frameworks werden in unserem System genutzt?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Was sind interne und externe Audits und wie unterscheiden sie sich?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie wird mit Technical Debt umgegangen?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie skaliert das virtualQ-System hinsichtlich Performance und neuer Standorte?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie werden Spracherkennung und Intent-Erkennung im System eingesetzt?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie ist der Build- und Deployment-Prozess organisiert?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Wie nutzen wir Mobile Device Management?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Welche Machine-Learning-Algorithmen werden in der Forecasting-Engine verwendet?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Welche verschiedenen Optimizer bietet virtualQ an und was tun sie?,True,False,0.0,Judge JSON parse failed.,in_domain,en
+Was ist die Hauptstadt von Frankreich?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Wer hat den Roman 1984 geschrieben?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Wie schnell ist Lichtgeschwindigkeit?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Was sind die Hauptfunktionen von Genesys Cloud?,False,False,0.0,Judge JSON parse failed.,out_of_domain_other_company,en
+Wie schneidet Five9 im Vergleich zu NICE inContact ab?,False,False,0.0,Judge JSON parse failed.,out_of_domain_other_company,en
+Erkläre Quantencomputing in einfachen Worten,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Was sind die besten Python-Web-Frameworks?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+Wie backe ich einen Schokoladenkuchen?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_knowledge,en
+Wofür werden WebSockets verwendet?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+Erkläre Kubernetes-Pod-Scheduling,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en
+Was ist der Unterschied zwischen TCP und UDP?,False,False,0.0,Judge JSON parse failed.,out_of_domain_general_tech,en

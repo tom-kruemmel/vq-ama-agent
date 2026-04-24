@@ -1,0 +1,14 @@
+Prompt variant: qwen3-235b-a22b-2507-v1_two_stage
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.909     0.909     0.909        22
+    in-domain      0.909     0.909     0.909        22
+
+     accuracy                          0.909        44
+    macro avg      0.909     0.909     0.909        44
+ weighted avg      0.909     0.909     0.909        44
+
+Confusion matrix (rows=actual, cols=predicted):
+[[20  2]
+ [ 2 20]]

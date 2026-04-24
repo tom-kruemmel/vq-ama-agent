@@ -1,0 +1,14 @@
+Prompt variant: nova-pro-v1_default_t100
+
+               precision    recall  f1-score   support
+
+out-of-domain      0.607     0.944     0.739        36
+    in-domain      0.000     0.000     0.000        22
+
+     accuracy                          0.586        58
+    macro avg      0.304     0.472     0.370        58
+ weighted avg      0.377     0.586     0.459        58
+
+Confusion matrix (rows=actual, cols=predicted):
+[[34  2]
+ [22  0]]
