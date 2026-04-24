@@ -62,29 +62,56 @@ class RAGAgent:
         self,
         question: str,
         context_docs: list[ScoredChunk] | list[str],
-        chat_history: str = "",
+        chat_history: list[dict[str, str]] | None = None,
         language: str = "English",
         domain_desc: str = "",
     ) -> str:
+        if chat_history is None:
+            chat_history = []
         context_texts = [
             doc.text if isinstance(doc, ScoredChunk) else (doc[0] if isinstance(doc, tuple) else doc)
             for doc in context_docs[:self.context_limit]
         ]
         context = "\n\n".join(context_texts)
-        answer_prompt = self.generate_answer_prompt.format(
-            context=context, question=question, chat_history=chat_history, language=language
-        )
-        system_prompt = (
+
+        # Build system prompt: domain preamble + answer-generation instructions
+        domain_preamble = (
             f"You are an assistant for the following domain:\n{domain_desc}\n"
             "Answer questions accordingly, staying within this domain's scope."
             if domain_desc
             else "You are a helpful assistant."
         )
-        return self.answer_question(answer_prompt, system_prompt=system_prompt)
+        instructions = self.generate_answer_prompt.format(
+            context=context, language=language
+        )
+        system_prompt = f"{domain_preamble}\n\n{instructions}"
 
-    def answer_question(self, question: str, system_prompt: str = "You are a helpful assistant.") -> str:
+        # Build structured messages: chat history + current question
+        messages = []
+        for turn in chat_history:
+            messages.append({
+                "role": turn["role"],
+                "content": [{"text": turn["content"]}],
+            })
+        messages.append({
+            "role": "user",
+            "content": [{"text": question}],
+        })
+
+        return self.answer_question(system_prompt=system_prompt, messages=messages)
+
+    def answer_question(
+        self,
+        question: str = None,
+        system_prompt: str = "You are a helpful assistant.",
+        messages: list[dict] | None = None,
+    ) -> str:
         """
         Queries Bedrock to generate an answer.
+
+        When *messages* is provided, it is passed directly to the Converse API
+        as structured multi-turn input.  Otherwise, *question* is sent as a
+        single user message (legacy path used by query generation).
         """
         response = self.bedrock.invoke_model(
             model_id=self.model_id,
@@ -93,6 +120,7 @@ class RAGAgent:
             temperature=self.temperature,
             top_p=self.top_p,
             system_prompt=system_prompt,
+            messages=messages,
         )
         # Some models (e.g. Qwen3) return reasoningContent blocks before the
         # text block.  Walk the list and return the first text entry.

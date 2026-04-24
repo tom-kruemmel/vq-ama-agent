@@ -17,6 +17,17 @@ from .utils import detect_language, sanitize_user_input
 logger = logging.getLogger(__name__)
 
 
+def _chat_history_to_str(chat_history: list[dict[str, str]]) -> str:
+    """Convert structured chat history to a string for prompt templates."""
+    if not chat_history:
+        return "(No previous conversation)"
+    lines = []
+    for turn in chat_history:
+        role = "User" if turn["role"] == "user" else "Assistant"
+        lines.append(f"{role}: {turn['content']}")
+    return "\n".join(lines)
+
+
 @dataclass
 class PipelineResult:
     """Structured output from the full RAG pipeline."""
@@ -47,7 +58,7 @@ def run_pipeline(
     domain_judge: DomainJudge | None = None,
     rerank_top_n: int = 10,
     top_k: int = 10,
-    chat_history: str = "",
+    chat_history: list[dict[str, str]] | None = None,
     enforce_gates: bool = True,
     sanitize: bool = True,
 ) -> PipelineResult:
@@ -64,6 +75,9 @@ def run_pipeline(
         if not question:
             return PipelineResult(answer=None, contexts=[], language="English")
 
+    if chat_history is None:
+        chat_history = []
+
     # 2. Language detection
     language = detect_language(question)
 
@@ -71,8 +85,9 @@ def run_pipeline(
 
     # 3. Domain judge
     if domain_judge is not None:
+        chat_history_str = _chat_history_to_str(chat_history)
         in_domain, dq_score, dq_rationale = domain_judge.judge(
-            question, chat_history=chat_history, min_score=0.60,
+            question, chat_history=chat_history_str, min_score=0.60,
         )
         result.domain_in_domain = in_domain
         result.domain_score = dq_score

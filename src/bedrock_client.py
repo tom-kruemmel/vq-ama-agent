@@ -64,23 +64,27 @@ class BedrockClient:
     def invoke_model(
         self,
         model_id: str,
-        prompt: str,
+        prompt: str = None,
         max_tokens: int = 512,
         temperature: float = 0.7,
         top_p: float = 1.0,
         system_prompt: str = "You are a helpful assistant.",
+        messages: list[dict] | None = None,
     ) -> Dict[str, Any]:
-        if isinstance(prompt, list):
-            try:
-                input_text = "\n".join([msg.content for msg in prompt])
-            except AttributeError:
-                raise TypeError("Prompt list must contain objects with a 'content' attribute.")
-        elif hasattr(prompt, "content"):  # Ein einzelnes HumanMessage-Objekt
-            input_text = prompt.content
-        elif isinstance(prompt, str):
-            input_text = prompt
-        else:
-            raise TypeError(f"Unsupported prompt type: {type(prompt)}")
+        if messages is None:
+            # Legacy single-prompt path: build a one-shot user message.
+            if isinstance(prompt, list):
+                try:
+                    input_text = "\n".join([msg.content for msg in prompt])
+                except AttributeError:
+                    raise TypeError("Prompt list must contain objects with a 'content' attribute.")
+            elif hasattr(prompt, "content"):  # Ein einzelnes HumanMessage-Objekt
+                input_text = prompt.content
+            elif isinstance(prompt, str):
+                input_text = prompt
+            else:
+                raise TypeError(f"Unsupported prompt type: {type(prompt)}")
+            messages = [{"role": "user", "content": [{"text": input_text}]}]
 
         inference_cfg = {
             "maxTokens": max_tokens,
@@ -96,9 +100,7 @@ class BedrockClient:
                 resp = self.client.converse(
                     modelId=model_id,
                     system=[{"text": system_prompt}],
-                    messages=[
-                        {"role": "user", "content": [{"text": input_text}]}
-                    ],
+                    messages=messages,
                     inferenceConfig=inference_cfg
                 )
                 return resp

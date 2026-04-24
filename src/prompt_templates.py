@@ -48,104 +48,62 @@ User's question: {question}
 
 # Q/A Style: Terse, fact-focused
 GENERATE_ANSWER_PROMPT = """
-Conversation so far:
-{chat_history}
+Use the following context to answer the user's question. Provide a direct, factual answer in 2-4 sentences. Cite specific details from the context. Use the conversation history to resolve pronouns and references.
 
 Context:
 {context}
 
-Question: {question}
-
-Instructions: Provide a direct, factual answer in 2-4 sentences. Cite specific details from the context. Use the conversation history to resolve pronouns and references.
 IMPORTANT: You MUST reply in {language}.
-
-Answer:
 """
 
 # Conversational Style
 GENERATE_ANSWER_CONVERSATIONAL = """
-Conversation so far:
-{chat_history}
+Based on the provided context, explain the answer to the user's question in a friendly, conversational manner. Use simple language and provide helpful context where needed. Use the conversation history to resolve pronouns and references.
 
-Based on the information below, explain the answer to the user's question in a friendly, conversational manner. Use simple language and provide helpful context where needed. Use the conversation history to resolve pronouns and references.
-
-Information:
+Context:
 {context}
 
-User's question: {question}
-
 IMPORTANT: You MUST reply in {language}.
-
-
-Response:
 """
 
 # Instruction Block Style (enterprise)
 GENERATE_ANSWER_INSTRUCTION_BLOCK = """
-[SYSTEM]
+You must ONLY use information from the provided context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
 
-[CONVERSATION HISTORY]
-{chat_history}
-
-[CONTEXT]
+Context:
 {context}
 
-[QUESTION]
-{question}
-
-You must ONLY use information from the provided Context. Do not introduce external knowledge. If the context is insufficient, say so. Use the conversation history to resolve pronouns and references.
-
-
 IMPORTANT: You MUST reply in {language}.
-
-
-[ANSWER]
 """
 
 # --- Grounding Strictness Variants ---
 
 # Uncertainty-Aware
 GENERATE_ANSWER_UNCERTAINTY_AWARE = """
-Conversation so far:
-{chat_history}
-
-Context:
-{context}
-
-Question: {question}
-
-Provide your answer with explicit confidence indicators. Use the conversation history to resolve pronouns and references.
+Use the following context to answer the user's question with explicit confidence indicators. Use the conversation history to resolve pronouns and references.
 - State what you can answer confidently from the context
 - For any gaps, explicitly say "Not enough information in the provided documents to determine..."
 - Never guess or fabricate details
 
+Context:
+{context}
+
 IMPORTANT: You MUST reply in {language}.
-
-
-Answer:
 """
 
 # Full Chain-of-Thought
 GENERATE_ANSWER_FULL_COT = """
-Conversation so far:
-{chat_history}
-
-Context:
-{context}
-
-Question: {question}
-
-Think through this step-by-step (use the conversation history to resolve pronouns and references):
+Use the following context to answer the user's question. Think through this step-by-step (use the conversation history to resolve pronouns and references):
 1. What specific information from the context is relevant?
 2. How do these pieces of information connect?
 3. What can we conclude?
 
 Then provide your final answer clearly labeled.
 
+Context:
+{context}
+
 IMPORTANT: You MUST reply in {language}.
-
-
-Reasoning and Answer:
 """
 
 
@@ -191,7 +149,6 @@ JSON:
 {{"in_domain": true/false, "score": 0.0-1.0, "rationale": "one sentence explaining your reasoning"}}
 """
 
-# Lenient with Benefit of Doubt
 JUDGE_DOMAIN_LENIENT = """
 You are a helpful domain classifier. Give the benefit of the doubt to questions that could reasonably relate to the domain, even if indirectly.
 Use the CONVERSATION HISTORY to resolve pronouns and references in the question.
@@ -218,7 +175,6 @@ JSON:
 {{"in_domain": true/false, "score": 0.0-1.0, "rationale": "one sentence explaining your reasoning"}}
 """
 
-# Two-Stage Reasoning
 JUDGE_DOMAIN_TWO_STAGE = """
 Classify whether the USER QUESTION is IN-DOMAIN for the given DOMAIN.
 Use the CONVERSATION HISTORY to resolve pronouns and references in the question.

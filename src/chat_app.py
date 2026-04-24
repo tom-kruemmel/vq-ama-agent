@@ -31,15 +31,13 @@ def _get_history(session_id: str) -> deque:
         return _session_histories[session_id]
 
 
-def _format_history(history: deque) -> str:
-    """Format recent turns into a string for the prompt."""
-    if not history:
-        return "(No previous conversation)"
-    lines = []
+def _format_history(history: deque) -> list[dict[str, str]]:
+    """Format recent turns into structured messages for the Converse API."""
+    messages = []
     for q, a in history:
-        lines.append(f"User: {q}")
-        lines.append(f"Assistant: {a}")
-    return "\n".join(lines)
+        messages.append({"role": "user", "content": q})
+        messages.append({"role": "assistant", "content": a})
+    return messages
 
 CHAT_HTML = """
 <!doctype html>
