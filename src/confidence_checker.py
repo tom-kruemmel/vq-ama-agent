@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 class ConfidenceChecker:
     def __init__(
         self,
-        min_chunks: int = 2,
+        min_chunks: int = 3,
         min_unique_chunks: int = 1,
         min_total_chars: int = 200,
-        min_top1_relevance: float = -4.0,
-        min_avg_top3_relevance: float = -5.0,
+        min_top1_relevance: float = -2.0,
+        min_avg_top3_relevance: float = -2.0,
     ):
         """
         Confidence gate that operates on *already re-ranked* chunks.
