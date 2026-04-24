@@ -100,8 +100,7 @@ class PdfPersister:
     
     def check_for_heading(self, text, headings, current_heading) -> str:
         for heading in headings:
-            true_heading = "\n" + heading + "\n"
-            if true_heading in text:
+            if text.startswith(heading) or ("\n" + heading + "\n") in text:
                 return heading
         return current_heading
 
