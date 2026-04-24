@@ -35,6 +35,10 @@ class BM25Retriever:
             documents: Corpus documents (same chunks stored in Chroma).
         """
         self._documents = documents
+        if not documents:
+            logger.warning("BM25 index initialised with 0 documents – retrieval will return empty results")
+            self._bm25 = None
+            return
         tokenized_corpus = [_tokenize(doc.page_content) for doc in documents]
         self._bm25 = BM25Okapi(tokenized_corpus)
         logger.info("BM25 index built with %d documents", len(documents))
@@ -86,6 +90,8 @@ class BM25Retriever:
         Returns:
             List of Document objects sorted by BM25 score descending.
         """
+        if self._bm25 is None:
+            return []
         scores = self._bm25.get_scores(_tokenize(query))
         top_indices = scores.argsort()[-top_k * 3:][::-1]  # over-fetch for filtering
 
