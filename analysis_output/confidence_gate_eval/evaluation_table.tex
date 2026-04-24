@@ -1,0 +1,250 @@
+\begin{table}[htbp]
+\centering
+\caption{Best confidence gate results per model (optimal query-expansion prompt).}
+\label{tab:confidence-gate-best}
+\begin{tabular}{llcccccc}
+\toprule
+Model & Prompt & F1\textsubscript{macro} & Accuracy & F1\textsubscript{pass} & F1\textsubscript{abstain} & min\_top1 & min\_avg\_top3 \\
+\midrule
+amazon\_nova-pro-v1        & decompose & \textbf{0.770} & 0.786 & 0.830 & 0.710 & $-6.0$ & $-2.0$ \\
+gpt-oss-120b-1             & hyde      & 0.763          & 0.786 & 0.836 & 0.690 & $-6.0$ & $-2.0$ \\
+qwen3-235b-a22b-2507-v1   & hyde      & 0.763          & 0.786 & 0.836 & 0.690 & $-2.0$ & $-2.0$ \\
+mistral\_pixtral-large-2502-v1 & hyde  & 0.744          & 0.786 & 0.848 & 0.640 & $-2.0$ & $-4.0$ \\
+amazon\_nova-lite-v1       & default   & 0.741          & 0.762 & 0.815 & 0.667 & $-6.0$ & $-2.0$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ── Per-model prompt comparison ──────────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Query-expansion prompt comparison for \texttt{amazon\_nova-pro-v1}.}
+\label{tab:cg-nova-pro}
+\begin{tabular}{lcccccc}
+\toprule
+Prompt & F1\textsubscript{macro} & Accuracy & TP & TN & FP & FN \\
+\midrule
+\textbf{decompose} & \textbf{0.770} & 0.786 & 22 & 11 & 3 & 6 \\
+hyde      & 0.744 & 0.786 & 25 &  8 & 6 & 3 \\
+default   & 0.741 & 0.762 & 22 & 10 & 4 & 6 \\
+diverse   & 0.722 & 0.762 & 24 &  8 & 6 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Query-expansion prompt comparison for \texttt{gpt-oss-120b-1}.}
+\label{tab:cg-gpt-oss}
+\begin{tabular}{lcccccc}
+\toprule
+Prompt & F1\textsubscript{macro} & Accuracy & TP & TN & FP & FN \\
+\midrule
+\textbf{hyde} & \textbf{0.763} & 0.786 & 23 & 10 & 4 & 5 \\
+diverse   & 0.744 & 0.786 & 25 &  8 & 6 & 3 \\
+default   & 0.741 & 0.762 & 22 & 10 & 4 & 6 \\
+decompose & 0.722 & 0.762 & 24 &  8 & 6 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Query-expansion prompt comparison for \texttt{qwen3-235b-a22b-2507-v1}.}
+\label{tab:cg-qwen3}
+\begin{tabular}{lcccccc}
+\toprule
+Prompt & F1\textsubscript{macro} & Accuracy & TP & TN & FP & FN \\
+\midrule
+\textbf{hyde} & \textbf{0.763} & 0.786 & 23 & 10 & 4 & 5 \\
+default   & 0.741 & 0.762 & 22 & 10 & 4 & 6 \\
+diverse   & 0.722 & 0.762 & 24 &  8 & 6 & 4 \\
+decompose & 0.722 & 0.762 & 24 &  8 & 6 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Query-expansion prompt comparison for \texttt{mistral\_pixtral-large-2502-v1}.}
+\label{tab:cg-mistral}
+\begin{tabular}{lcccccc}
+\toprule
+Prompt & F1\textsubscript{macro} & Accuracy & TP & TN & FP & FN \\
+\midrule
+\textbf{hyde} & \textbf{0.744} & 0.786 & 25 &  8 & 6 & 3 \\
+default   & 0.741 & 0.762 & 22 & 10 & 4 & 6 \\
+diverse   & 0.719 & 0.738 & 21 & 10 & 4 & 7 \\
+decompose & 0.697 & 0.714 & 20 & 10 & 4 & 8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Query-expansion prompt comparison for \texttt{amazon\_nova-lite-v1}.}
+\label{tab:cg-nova-lite}
+\begin{tabular}{lcccccc}
+\toprule
+Prompt & F1\textsubscript{macro} & Accuracy & TP & TN & FP & FN \\
+\midrule
+\textbf{default} & \textbf{0.741} & 0.762 & 22 & 10 & 4 & 6 \\
+hyde      & 0.732 & 0.762 & 23 &  9 & 5 & 5 \\
+diverse   & 0.719 & 0.738 & 21 & 10 & 4 & 7 \\
+decompose & 0.719 & 0.738 & 21 & 10 & 4 & 7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ── False positives (shared across all models, default prompt) ───────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Persistent false positives at optimal threshold (\texttt{avg\_top3} $\geq -2.0$, default prompt). These confidential-only questions are incorrectly passed by the gate.}
+\label{tab:cg-false-positives}
+\begin{tabular}{lccl}
+\toprule
+Question & top1 & avg\_top3 & Cause \\
+\midrule
+Wofür wird Redux genutzt? (DE)              &  3.74 & $-0.81$ & Superficial public match \\
+What is Redux used for? (EN)                 &  0.64 & $-1.73$ & Same, weaker \\
+Wie ist Call-Prep an die API angebunden? (DE) &  2.18 & $\phantom{-}0.78$ & Public API semantic overlap \\
+How is Call-Prep connected to the API? (EN)  &  2.83 & $\phantom{-}0.92$ & Same \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ── False negatives (shared across all models, default prompt) ───────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Persistent false negatives at optimal threshold (\texttt{avg\_top3} $\geq -2.0$, default prompt). These answerable questions are incorrectly rejected by the gate.}
+\label{tab:cg-false-negatives}
+\begin{tabular}{lccl}
+\toprule
+Question & top1 & avg\_top3 & Cause \\
+\midrule
+Drittanbieter-Software? (DE)          & $-0.05$ & $-2.20$ & Barely below threshold \\
+Deployments Qualität (DE)             & $-2.34$ & $-3.67$ & Retriever struggles with phrasing \\
+Deployments quality (EN)              & $-2.78$ & $-4.52$ & Worse in English \\
+MDM extent (EN)                       & $-0.88$ & $-2.94$ & Low relevance for usage extent \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ── Confidential mirror false negatives ──────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Confidential mirror false negatives: questions that should pass when confidential documents are included but still fall below threshold.}
+\label{tab:cg-mirror-fn}
+\begin{tabular}{lccl}
+\toprule
+Question & top1 & avg\_top3 & Cause \\
+\midrule
+Welche Lizenz hat Ruby on Rails? (DE)   & $-2.79$ & $-3.63$ & Retrieval failure even with conf.\ docs \\
+What license does Ruby on Rails have? (EN) & $-4.32$ & $-4.91$ & Same \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ── Cross-model improvement summary ─────────────────────────────────────────
+
+\begin{table}[htbp]
+\centering
+\caption{Cross-model summary: improvement of best query-expansion prompt over default.}
+\label{tab:cg-cross-model}
+\begin{tabular}{lccp{5.5cm}}
+\toprule
+Model & Best F1\textsubscript{macro} & $\Delta$ vs.\ default & Mechanism \\
+\midrule
+amazon\_nova-pro-v1        & \textbf{0.770} & $+0.029$ & decompose flips Redux EN from FP$\to$TN \\
+gpt-oss-120b-1             & 0.763          & $+0.022$ & hyde recovers Drittanbieter from FN$\to$TP \\
+qwen3-235b-a22b-2507-v1   & 0.763          & $+0.022$ & hyde recovers Drittanbieter from FN$\to$TP \\
+mistral\_pixtral-large      & 0.744          & $+0.003$ & hyde uses lenient threshold, trades FP for TP \\
+amazon\_nova-lite-v1       & 0.741          & $+0.000$ & No prompt beats default \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ══════════════════════════════════════════════════════════════════════════════
+%%  PER-PROMPT ANALYSIS
+%% ══════════════════════════════════════════════════════════════════════════════
+
+% The default prompt passes the user query unmodified to retrieval, producing
+% identical results across all models (F1_macro = 0.741).  Hyde, which generates
+% a hypothetical answer document for retrieval, is the strongest prompt on average
+% (mean F1_macro = 0.749): it broadly lifts cross-encoder scores, recovering
+% borderline false negatives such as the Drittanbieter-Software question
+% (avg_top3 shifts from -2.20 to -1.39) without disturbing true negatives for
+% GPT-OSS and Qwen3.  Decompose, which breaks the query into sub-questions, is
+% the most polarising prompt (spread = 0.073): it produces the single best result
+% overall when paired with Nova Pro (0.770), because its sub-questions dilute the
+% spurious Redux~EN match (avg_top3: -1.73 -> -2.24, flipping FP to TN), yet it
+% is the worst prompt for Mistral (0.697) and Nova Lite (0.719), where the
+% narrower sub-queries push borderline answerable questions such as Call-Prep
+% benefits and Audits~EN below the -2.0 threshold (TP -> FN).  Diverse,
+% which retrieves for multiple paraphrases, never achieves the best result for
+% any model (mean F1_macro = 0.725); its broader retrieval dilutes the top-3
+% average without recovering any false negatives, and it degrades Call-Prep
+% benefits~DE for smaller models (avg_top3: -1.74 -> -2.14).
+
+\begin{table}[htbp]
+\centering
+\caption{Confidence gate performance across \texttt{(min\_top1, min\_avg\_top3)} threshold pairs. Quantity-based parameters (\texttt{min\_chunks}, \texttt{min\_total\_chars}, \texttt{min\_unique\_chunks}) have no effect and are omitted.}
+\label{tab:cg-threshold-landscape}
+\begin{tabular}{cccccl}
+\toprule
+min\_avg\_top3 & min\_top1 & F1\textsubscript{macro} & FP & FN & Note \\
+\midrule
+$-2.0$ & $-6.0$ to $-2.0$ & \textbf{0.770} &  3 &  6 & Optimal \\
+$-2.0$ & $\phantom{-}0.0$  & 0.704          &  3 &  9 & top1 over-rejects \\
+$-3.0$ & $-2.0$ to $-6.0$  & 0.569--0.687   & 7--10 & 4 & avg\_top3 too lenient \\
+$-4.0$ & any                & 0.541          & 11 &  3 & Nearly all pass \\
+$-5.0$ to $-6.0$ & any     & 0.400--0.473   & 12--14 & 0--1 & Gate effectively disabled \\
+any    & $\phantom{-}2.0$   & 0.500          &  3 & 18 & top1 catastrophically strict \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Cross-prompt summary (mean F1\textsubscript{macro} across all 5 models).}
+\label{tab:cg-cross-prompt}
+\begin{tabular}{lcccp{4.8cm}}
+\toprule
+Prompt & Mean F1\textsubscript{macro} & Best model & Spread & Primary effect \\
+\midrule
+\textbf{hyde}   & \textbf{0.749} & GPT-OSS / Qwen3 (0.763) & 0.031 & Lifts scores; recovers borderline FNs \\
+default         & 0.741          & all (0.741)              & 0.000 & No expansion; stable baseline \\
+decompose       & 0.726          & Nova Pro (0.770)         & 0.073 & Narrows retrieval; high variance \\
+diverse         & 0.725          & GPT-OSS (0.744)          & 0.025 & Broadens retrieval; dilutes top-3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Key \texttt{avg\_top3} score shifts per prompt vs.\ default (threshold $= -2.0$).}
+\label{tab:cg-prompt-shifts}
+\begin{tabular}{llcccl}
+\toprule
+Prompt & Question & Default & Shifted & $\Delta$ & Effect \\
+\midrule
+hyde      & Drittanbieter-Softw.\ (DE)  & $-2.20$ & $\mathbf{-1.39}$ & $+0.81$ & FN$\to$TP \\
+hyde      & Redux (DE)                  & $-0.81$ & $-0.52$           & $+0.29$ & Stays FP \\
+decompose & Redux (EN) \scriptsize{[Nova Pro]}  & $-1.73$ & $\mathbf{-2.24}$ & $-0.51$ & FP$\to$TN \\
+decompose & Call-Prep ben.\ (DE) \scriptsize{[Mistral]} & $-1.74$ & $\mathbf{-2.09}$ & $-0.35$ & TP$\to$FN \\
+decompose & Audits (EN) \scriptsize{[Mistral]}  & $-1.95$ & $\mathbf{-2.13}$ & $-0.18$ & TP$\to$FN \\
+diverse   & Call-Prep ben.\ (DE)        & $-1.74$ & $\mathbf{-2.14}$ & $-0.40$ & TP$\to$FN \\
+diverse   & Drittanbieter-Softw.\ (DE)  & $-2.20$ & $-2.12$           & $+0.08$ & Stays FN \\
+\bottomrule
+\end{tabular}
+\end{table}

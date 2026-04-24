@@ -1,0 +1,29 @@
+question,lang,category,headings,expected_confident,num_chunks,num_unique_chunks,total_chars,top1_relevance,avg_top3_relevance
+Welche rechtlichen Kriterien gibt es bei Drittanbieter-Software?,de,answerable_public,PUBLIC,True,10,10,4441,-0.0543,-2.0438
+Welche Programmiersprachen werden bei uns verwendet?,de,confidential_only,PUBLIC,False,10,10,13721,-2.6322,-2.9643
+Welche Frameworks werden genutzt?,de,confidential_only,PUBLIC,False,10,10,14053,-2.2967,-2.9354
+Was sind interne und externe Audits und wie unterscheiden sie sich?,de,answerable_public,PUBLIC,True,10,10,14263,0.7415,-0.8692
+Wie wird sichergestellt dass alle Deployments höchsten Qualitätsstandardds entsprechen?,de,answerable_public,PUBLIC,True,10,10,14396,-2.3447,-4.0925
+Inwiefern nutzen sie Mobile Device Management?,de,answerable_public,PUBLIC,True,10,10,14396,1.5063,-0.8116
+Was bringt Call-Preparation?,de,answerable_public,PUBLIC,True,10,10,14340,-0.9335,-1.7449
+Wie viele Minuten sind im M Paket von Call-Preparation enthalten?,de,confidential_only,PUBLIC,False,10,10,18431,0.1725,-2.0542
+Welche Probleme hat der Appointment-Bot?,de,answerable_public,PUBLIC,True,10,10,18239,2.3517,-0.027
+Wofür wird Redux genutzt?,de,confidential_only,PUBLIC,False,10,10,3932,3.7401,-0.5548
+Welche Lizenz hat Ruby on Rails?,de,confidential_only,PUBLIC,False,10,10,13988,-4.4546,-4.7561
+Wie ist Call-Preparation an die API angebunden?,de,confidential_only,PUBLIC,False,10,10,8623,2.184,1.0197
+Welche Programmiersprachen werden für User Interfaces genutzt?,de,confidential_only,PUBLIC,False,10,10,4322,-2.4739,-2.9102
+Was ist Mobile Device Management und wie wird es eingesetzt?,de,answerable_public,PUBLIC,True,10,10,14424,2.4774,0.0773
+What are the legal criteria for third-party software?,en,answerable_public,PUBLIC,True,10,10,4036,5.5442,1.5058
+Which programming languages do we use?,en,confidential_only,PUBLIC,False,10,10,4147,-1.2435,-2.3595
+Which frameworks are used?,en,confidential_only,PUBLIC,False,10,10,4148,-2.1823,-2.5818
+"What are internal and external audits, and how do they differ?",en,answerable_public,PUBLIC,True,10,10,4338,-0.1808,-1.946
+How do you ensure that all deployments meet the highest quality standards?,en,answerable_public,PUBLIC,True,10,10,4609,-2.782,-4.6754
+To what extent do you use Mobile Device Management?,en,answerable_public,PUBLIC,True,10,10,4669,-0.8818,-2.9405
+What are the benefits of Call Preparation?,en,answerable_public,PUBLIC,True,10,10,4513,1.2936,-0.7052
+How many minutes are included in the M package of Call Preparation?,en,confidential_only,PUBLIC,False,10,10,14161,-3.2209,-3.8594
+What issues does the Appointment Bot have?,en,answerable_public,PUBLIC,True,10,10,18106,2.4088,-0.2171
+What is Redux used for?,en,confidential_only,PUBLIC,False,10,10,4289,0.6376,-1.5757
+What license does Ruby on Rails have?,en,confidential_only,PUBLIC,False,10,10,4569,-4.7505,-5.0612
+How is Call Preparation connected to the API?,en,confidential_only,PUBLIC,False,10,10,8615,2.829,0.9182
+Which programming languages are used for user interfaces?,en,confidential_only,PUBLIC,False,10,10,4274,-2.4299,-2.9979
+What is Mobile Device Management and how is it used?,en,answerable_public,PUBLIC,True,10,10,4643,2.2233,-0.2522

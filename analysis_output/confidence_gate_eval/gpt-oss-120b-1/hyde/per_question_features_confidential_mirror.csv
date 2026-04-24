@@ -1,0 +1,15 @@
+question,lang,category,headings,expected_confident,num_chunks,num_unique_chunks,total_chars,top1_relevance,avg_top3_relevance
+Welche Programmiersprachen werden bei uns verwendet?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4609,-0.349,-1.1845
+Welche Frameworks werden genutzt?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4609,1.6896,0.4529
+Wie viele Minuten sind im M Paket von Call-Preparation enthalten?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,13892,1.6802,-0.594
+Wofür wird Redux genutzt?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4182,10.1537,6.188
+Welche Lizenz hat Ruby on Rails?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,14410,-1.9347,-2.7981
+Wie ist Call-Preparation an die API angebunden?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,14255,4.3673,2.4193
+Welche Programmiersprachen werden für User Interfaces genutzt?,de,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4487,2.1638,-0.636
+Which programming languages do we use?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4621,0.0173,-1.0164
+Which frameworks are used?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4709,1.7813,0.1539
+How many minutes are included in the M package of Call Preparation?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,17877,1.0268,-1.9827
+What is Redux used for?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,4246,9.8643,4.5906
+What license does Ruby on Rails have?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,8298,-3.2574,-3.8412
+How is Call Preparation connected to the API?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,8425,2.9808,2.6607
+Which programming languages are used for user interfaces?,en,confidential_mirror,"PUBLIC,CONFIDENTIAL",True,10,10,8560,1.5806,0.7589

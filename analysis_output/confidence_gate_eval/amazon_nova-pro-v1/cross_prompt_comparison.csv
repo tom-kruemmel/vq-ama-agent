@@ -1,0 +1,5 @@
+query_prompt,min_chunks,min_unique_chunks,min_total_chars,min_top1_relevance,min_avg_top3_relevance,f1_pass,f1_abstain,f1_macro,accuracy,tp,tn,fp,fn,abstention_rate,n_total
+decompose,1.0,1.0,200.0,-6.0,-2.0,0.8302,0.7097,0.7699,0.7857,22.0,11.0,3.0,6.0,0.4048,42.0
+hyde,2.0,1.0,200.0,-2.0,-4.0,0.8475,0.64,0.7437,0.7857,25.0,8.0,6.0,3.0,0.2619,42.0
+default,3.0,1.0,200.0,-6.0,-2.0,0.8148,0.6667,0.7407,0.7619,22.0,10.0,4.0,6.0,0.381,42.0
+diverse,2.0,1.0,200.0,-2.0,-4.0,0.8276,0.6154,0.7215,0.7619,24.0,8.0,6.0,4.0,0.2857,42.0
