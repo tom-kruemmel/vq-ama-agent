@@ -34,6 +34,8 @@ def sanitize_user_input(text: str, max_length: int = MAX_QUESTION_LENGTH) -> str
         return ""
     # Normalize unicode
     text = unicodedata.normalize("NFC", text)
+    # Normalize carriage returns to newlines (mitigates \r-based prompt injection)
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
     # Remove control characters except \n and \t
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
     # Collapse sequences that look like prompt section delimiters
